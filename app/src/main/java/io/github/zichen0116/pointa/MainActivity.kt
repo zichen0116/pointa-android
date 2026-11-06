@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
             val preferences by model.preferences.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
             SideEffect {
+                @Suppress("DEPRECATION")
+                model.setDisplayRotation(windowManager.defaultDisplay.rotation)
                 val dark = preferences.appearance == "dark" || (preferences.appearance == "system" && systemDark)
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !dark
@@ -48,7 +50,7 @@ class MainActivity : ComponentActivity() {
             val actions = remember {
                 UiActions(scan = ::scan, discover = model::discover, pairCode = model::pairCode, reconnect = model::reconnect,
                     disconnect = model::disconnect, forget = model::forget, move = model::move, hide = model::hide,
-                    page = ::page, onControlActive = model::setControlActive)
+                    page = ::page, onControlActive = model::setControlActive, airHold = model::airHold, calibrateAir = model::calibrateAir)
             }
             PointaApp(state, preferences, model::changePreferences, actions)
             if (state.scanning) CameraScanner(

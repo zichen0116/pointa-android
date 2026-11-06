@@ -2,17 +2,19 @@
 
 原生 Kotlin / Compose 手机演示遥控端，配合 [Pointa Windows](https://github.com/zichen0116/pointa-windows) 使用。按照产品 PRD 和 V5 原型实现；激光与电脑鼠标独立，无云账号、无公网中转、无演示画面采集。
 
-当前是 **0.1.0 开发验证版**，Android 8.0+（API 26），目标 API 36。提供可安装的 debug APK；正式签名与应用商店发布尚未配置。
+当前是 **0.1.1 开发验证版**，Android 8.0+（API 26），目标 API 36。提供可安装的 debug APK；正式签名与应用商店发布尚未配置。
 
 ## 使用
 
-1. 安装 `artifacts/Pointa-0.1.0-debug.apk`，在 Windows 打开 Pointa。
-2. 手机、电脑连到互通的局域网。Windows 默认禁用公共网络；需在可信网络下允许防火墙访问。
+1. 安装 `artifacts/Pointa-0.1.1-debug.apk`，在 Windows 打开新版 Pointa。
+2. 手机、电脑连到互通的局域网。Windows 0.1.1 自动选择 Wi-Fi／有线网卡，不再因“公用”分类禁用连接；配对窗直接显示可复制的 IP。
 3. 扫描 Windows QR，或选择发现的电脑/手输 IP 并输入六位设备码；在 Windows 明确允许配对。
-4. 单手模式按住移动激光、松开隐藏；全屏模式按目标显示器比例映射；纯翻页模式保留两个大按钮。
+4. 控制主页固定一屏，连接和设置使用弹层。单手模式按住移动、松开隐藏；全屏按显示器比例映射；纯翻页保留两个大按钮。
 5. 浏览器/PDF 翻页前，从 Windows 托盘菜单明确允许当前演示窗口。失败会在手机显示原因，不虚构页码。
 
 支持左右手布局及四边编辑、主题/明暗/双语、激光颜色/大小/拖尾/平滑、灵敏度、音量键映射、布局锁定、触觉、常亮、最近电脑与前台重连。相机权限只在扫码时请求；拒绝后仍能使用设备码。离线遗忘设备只清除手机记录，仍应在 Windows 撤销原授权。
+
+**空中指针：** 选择“空中指针”，按住激活区后轻转手机；松手立即隐藏。“归零校准”将起点恢复到屏幕中心。支持平拿、竖拿和显示方向换轴；灵敏度在设置中调整。优先使用游戏旋转向量，缺失时使用旋转向量；没有相应传感器的手机明确提示使用触控。离开控制页、进入后台、断连或传感器失去更新都会停止输出。不同真机的漂移与手感仍需实测。
 
 扫码使用 CameraX + ZXing 离线解码。QR 绑定实际 TLS 证书 SHA-256；设备码使用证书绑定的 SRP-6a，批准后才保存独立凭据。长期凭据使用 Android Keystore AES-GCM 加密，并排除系统备份。首次配对、IP 发现与错误处理的安全边界见 [隐私与安全](docs/privacy-security.md)。
 
@@ -30,7 +32,7 @@
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本另复制到 `artifacts/Pointa-0.1.0-debug.apk`。发布签名密钥不应放入仓库，不用 debug 签名作为正式发行身份。
+输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按版本号另复制到 `artifacts/Pointa-0.1.1-debug.apk`。发布签名密钥不应放入仓库，不用 debug 签名作为正式发行身份。
 
 ## 测试
 
@@ -59,5 +61,5 @@ $env:POINTA_DOTNET = (Get-Command dotnet).Source
 
 - [架构](docs/architecture.md)、[范围与验收](docs/scope.md)、[本次验证](docs/validation.md)、[开源组件](docs/open-source-notices.md)。应用设置内可离线查看许可原文。
 - [Windows v1 协议](../pointa-windows/docs/protocol.md) 是双端契约；新 Windows 构建增加可选 `display` 信息，旧构建仍可连接，但手机没有真实显示器比例时按触控区域映射。
-- 陀螺仪为后续 P1，没有以演示页面冒充实现。真实扫码、厂商机型、网络切换、投影、P95 延迟/耗电、TalkBack 和独立安全审查仍需发布前验证。
+- 空中指针已实现；真实扫码、传感器机型差异、网络切换、投影、P95 延迟/耗电、TalkBack 和独立安全审查仍需发布前验证。
 - 项目最终开源许可证由仓库所有者决定；第三方许可已保留，不代表给本项目擅自指定许可。

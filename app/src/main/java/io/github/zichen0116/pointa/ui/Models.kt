@@ -5,7 +5,7 @@ data class Preferences(
     val theme: Int = 0,
     val appearance: String = "dark", // dark, light, system
     val language: String = "system", // zh, en, system
-    val mode: String = "one", // one, full, slides
+    val mode: String = "one", // one, full, slides, air
     val leftHand: Boolean = false,
     val leftMargins: Margins = Margins(),
     val rightMargins: Margins = Margins(),
@@ -42,6 +42,8 @@ data class UiState(
     val discovering: Boolean = false,
     val scanning: Boolean = false,
     val displayAspect: Float? = null,
+    val airAvailable: Boolean = false,
+    val airActive: Boolean = false,
 )
 
 data class UiActions(
@@ -55,4 +57,6 @@ data class UiActions(
     val hide: () -> Unit,
     val page: (next: Boolean) -> Unit,
     val onControlActive: (Boolean) -> Unit,
+    val airHold: (Boolean) -> Unit = {},
+    val calibrateAir: () -> Unit = {},
 )

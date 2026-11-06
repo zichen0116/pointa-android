@@ -6,6 +6,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,9 +32,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import kotlin.math.roundToInt
 
@@ -46,6 +49,7 @@ internal val LocalThemeIndex = staticCompositionLocalOf { 0 }
 private class PointerMemory(var point: Point = Point(.5f, .5f))
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun PointaApp(state: UiState, preferences: Preferences, onPreferencesChange: (Preferences) -> Unit, actions: UiActions) {
     val locale = LocalConfiguration.current.locales[0].language
     val copy = Copy(preferences.language == "zh" || preferences.language == "system" && locale == "zh")
@@ -64,31 +68,35 @@ fun PointaApp(state: UiState, preferences: Preferences, onPreferencesChange: (Pr
         onSurface = Color(0xFF172236), onSurfaceVariant = Color(0xFF56657A), outline = Color(0xFFB4C0D0))
     MaterialTheme(colorScheme = scheme) {
         CompositionLocalProvider(LocalCopy provides copy, LocalThemeIndex provides theme) {
-            var screen by rememberSaveable { mutableStateOf(if (state.connected) "control" else "devices") }
+            var panel by rememberSaveable { mutableStateOf<String?>(if (state.connected) null else "devices") }
             var locked by rememberSaveable { mutableStateOf(false) }
             var draft by remember { mutableStateOf<Margins?>(null) }
             val pointer = remember { PointerMemory() }
             val currentActions by rememberUpdatedState(actions)
-            val controlActive = screen == "control" && draft == null && preferences.onboardingDone && state.connected
+            val controlActive = panel == null && draft == null && preferences.onboardingDone && state.connected && !state.scanning
             LaunchedEffect(controlActive) {
                 currentActions.onControlActive(controlActive)
                 if (!controlActive) currentActions.hide()
             }
             DisposableEffect(Unit) { onDispose { currentActions.hide(); currentActions.onControlActive(false) } }
-            LaunchedEffect(state.connected) { if (state.connected) screen = "control" }
-            BackHandler(screen != "control" || draft != null || locked) {
-                when { draft != null -> draft = null; locked -> locked = false; else -> screen = "control" }
+            LaunchedEffect(state.connected) { if (state.connected) panel = null }
+            BackHandler(panel != null || draft != null || locked) {
+                when { panel != null -> panel = null; draft != null -> draft = null; locked -> locked = false }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = scheme.background) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    when {
-                        !preferences.onboardingDone -> Onboarding { onPreferencesChange(preferences.copy(onboardingDone = true)) }
-                        screen == "devices" -> DeviceScreen(state, actions, onBack = { screen = "control" }, onSettings = { screen = "settings" })
-                        screen == "settings" -> SettingsScreen(preferences, onPreferencesChange,
-                            onBack = { screen = "control" }, onDevices = { screen = "devices" })
-                        else -> ControlScreen(state, preferences, onPreferencesChange, actions, pointer,
-                            locked, { locked = it }, draft, { draft = it },
-                            onDevices = { screen = "devices" }, onSettings = { screen = "settings" })
+                    if (!preferences.onboardingDone) Onboarding { onPreferencesChange(preferences.copy(onboardingDone = true)) }
+                    else ControlScreen(state, preferences, onPreferencesChange, actions, pointer,
+                        locked, { locked = it }, draft, { draft = it },
+                        onDevices = { panel = "devices" }, onSettings = { panel = "settings" })
+                }
+            }
+            if (preferences.onboardingDone && panel != null) {
+                ModalBottomSheet(onDismissRequest = { panel = null },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = scheme.background) {
+                    Box(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
+                        if (panel == "devices") DeviceScreen(state, actions, onBack = { panel = null }, onSettings = { panel = "settings" })
+                        else SettingsScreen(preferences, onPreferencesChange, onBack = { panel = null }, onDevices = { panel = "devices" })
                     }
                 }
             }
@@ -251,7 +259,7 @@ private fun DeviceScreen(state: UiState, actions: UiActions, onBack: () -> Unit,
                 Text(s.t("设备码会过期；请使用电脑上当前显示的号码，并在电脑上确认连接。", "Pairing codes expire. Use the current code and approve the connection on your computer."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(s.t("连接不上？确认手机和电脑处于同一局域网。校园或访客 Wi-Fi 可能禁止设备互访，可尝试手机热点；同时允许 Windows 防火墙的专用网络访问。", "Can't connect? Both devices must be reachable on the same local network. Campus or guest Wi-Fi may isolate devices; try a phone hotspot and allow Pointa through the Windows firewall on private networks."),
+        Text(s.t("连接不上？确认手机和电脑处于同一局域网。校园或访客 Wi-Fi 可能禁止设备互访，可尝试手机热点；也可在 Windows 端设置中允许映点通过防火墙。", "Can't connect? Both devices must be reachable on the same local network. Campus or guest Wi-Fi may isolate devices; try a phone hotspot, or allow Pointa through the firewall in its Windows settings."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
     }
@@ -268,82 +276,176 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
     locked: Boolean, onLock: (Boolean) -> Unit, draft: Margins?, setDraft: (Margins?) -> Unit, onDevices: () -> Unit, onSettings: () -> Unit) {
     val s = LocalCopy.current
     var modesOpen by remember { mutableStateOf(false) }
-    val modeName = when (p.mode) { "full" -> s.t("全屏触控", "Full-screen"); "slides" -> s.t("纯翻页", "Slides only"); else -> s.t("单手模式", "One-hand") }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val workspaceHeight = (maxHeight - 210.dp).coerceIn(280.dp, 680.dp)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    var marginsOpen by remember { mutableStateOf(false) }
+    var statusOpen by remember { mutableStateOf(false) }
+    val modeName = when (p.mode) {
+        "full" -> s.t("全屏触控", "Full-screen")
+        "slides" -> s.t("纯翻页", "Slides only")
+        "air" -> s.t("空中指针", "Air pointer")
+        else -> s.t("单手模式", "One-hand")
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().testTag("presentation-screen")) {
+        val compact = maxHeight < 440.dp
+        Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).background(if (state.connected) Color(0xFF42D2A6) else MaterialTheme.colorScheme.outline, CircleShape))
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(state.deviceName.ifBlank { s.t("映点 Pointa", "Pointa") }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(if (state.connected) s.t("已连接", "Connected") else s.t("尚未连接", "Disconnected"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(state.deviceName.ifBlank { s.t("映点 Pointa", "Pointa") }, style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!compact) Text(if (state.connected) s.t("已连接", "Connected") else s.t("尚未连接", "Disconnected"),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { onLock(!locked) }, enabled = draft == null) { Icon(if (locked) Icons.Default.Lock else Icons.Default.LockOpen, if (locked) s.t("解锁布局", "Unlock layout") else s.t("锁定布局", "Lock layout")) }
+                IconButton(onClick = { onLock(!locked) }, enabled = draft == null) {
+                    Icon(if (locked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        if (locked) s.t("解锁布局", "Unlock layout") else s.t("锁定布局", "Lock layout"))
+                }
                 if (!locked) {
                     IconButton(onClick = onDevices, enabled = draft == null) { Icon(Icons.Default.Computer, s.t("连接设备", "Devices")) }
                     IconButton(onClick = onSettings, enabled = draft == null) { Icon(Icons.Default.Settings, s.t("个性化设置", "Settings")) }
                 }
             }
-            if (!state.connected || state.statusError != null) Status(state)
+            if (state.statusError != null || state.connecting) {
+                Text(state.statusError ?: state.statusText, Modifier.fillMaxWidth().clickable { statusOpen = true }
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                    color = if (state.statusError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
-                    TextButton(onClick = { modesOpen = true }, enabled = !locked && draft == null, contentPadding = PaddingValues(horizontal = 0.dp)) {
-                        Text(modeName, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    TextButton(onClick = { modesOpen = true }, enabled = !locked && draft == null,
+                        contentPadding = PaddingValues(horizontal = 0.dp)) {
+                        Text(modeName, Modifier.weight(1f, fill = false), fontSize = if (compact) 18.sp else 22.sp,
+                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
                         if (!locked) Icon(Icons.Default.ExpandMore, null)
                     }
                     DropdownMenu(expanded = modesOpen, onDismissRequest = { modesOpen = false }) {
-                        listOf("one" to s.t("单手模式", "One-hand"), "full" to s.t("全屏触控", "Full-screen"), "slides" to s.t("纯翻页", "Slides only")).forEach { (mode, label) ->
+                        listOf("one" to s.t("单手模式", "One-hand"), "full" to s.t("全屏触控", "Full-screen"),
+                            "slides" to s.t("纯翻页", "Slides only"), "air" to s.t("空中指针", "Air pointer")).forEach { (mode, label) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = { actions.hide(); update(p.copy(mode = mode)); modesOpen = false })
                         }
                     }
                 }
                 if (p.mode == "one" && !locked && draft == null) {
                     TextButton(onClick = { update(p.copy(leftHand = !p.leftHand)) }) { Text(if (p.leftHand) s.t("左手", "Left") else s.t("右手", "Right")) }
-                    IconButton(onClick = { actions.hide(); setDraft(if (p.leftHand) p.leftMargins else p.rightMargins) }) { Icon(Icons.Default.Edit, s.t("编辑触控区域", "Edit touch area")) }
+                    IconButton(onClick = { actions.hide(); setDraft(if (p.leftHand) p.leftMargins else p.rightMargins) }) {
+                        Icon(Icons.Default.Edit, s.t("编辑触控区域", "Edit touch area"))
+                    }
                 }
-                if (p.mode != "slides" && draft == null) IconButton(onClick = actions.hide, enabled = state.connected) { Icon(Icons.Default.VisibilityOff, s.t("立即隐藏激光", "Hide laser now")) }
+                if (p.mode != "slides" && draft == null) IconButton(onClick = actions.hide, enabled = state.connected) {
+                    Icon(Icons.Default.VisibilityOff, s.t("立即隐藏激光", "Hide laser now"))
+                }
             }
             if (draft != null) {
-                Text(s.t("拖动四边圆点调整区域，或使用下方滑块。", "Drag an edge handle or use the sliders below."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(onClick = { setDraft(null) }, modifier = Modifier.weight(1f)) { Text(s.t("取消", "Cancel")) }
                     TextButton(onClick = { setDraft(Margins()) }, modifier = Modifier.weight(1f)) { Text(s.t("重置", "Reset")) }
-                    Button(onClick = { update(if (p.leftHand) p.copy(leftMargins = draft.normalized()) else p.copy(rightMargins = draft.normalized())); setDraft(null) }, modifier = Modifier.weight(1f)) { Text(s.t("保存", "Save")) }
+                    Button(onClick = {
+                        update(if (p.leftHand) p.copy(leftMargins = draft.normalized()) else p.copy(rightMargins = draft.normalized()))
+                        setDraft(null)
+                    }, modifier = Modifier.weight(1f)) { Text(s.t("保存", "Save")) }
+                    IconButton(onClick = { marginsOpen = true }) { Icon(Icons.Default.Tune, s.t("边距数值", "Margin values")) }
                 }
             }
-            when (p.mode) {
-                "slides" -> Column(Modifier.fillMaxWidth().height(workspaceHeight), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PageButton(false, state.connected, { actions.page(false) }, Modifier.fillMaxWidth().weight(.36f))
-                    PageButton(true, state.connected, { actions.page(true) }, Modifier.fillMaxWidth().weight(.64f))
-                }
-                "full" -> {
-                    LaserPad(state.connected, p.fullRelative, p.sensitivity, state.displayAspect, pointer, actions,
-                        Modifier.fillMaxWidth().height((workspaceHeight - 90.dp).coerceAtLeast(220.dp)), p.laserColor)
-                    Row(Modifier.fillMaxWidth().heightIn(min = 86.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PageButton(false, state.connected, { actions.page(false) }, Modifier.weight(.4f).heightIn(min = 86.dp))
-                        PageButton(true, state.connected, { actions.page(true) }, Modifier.weight(.6f).heightIn(min = 86.dp))
+            Box(Modifier.fillMaxWidth().weight(1f).testTag("control-workspace")) {
+                when (p.mode) {
+                    "slides" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PageButton(false, state.connected, { actions.page(false) }, Modifier.fillMaxWidth().weight(.36f))
+                        PageButton(true, state.connected, { actions.page(true) }, Modifier.fillMaxWidth().weight(.64f))
                     }
+                    "full" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LaserPad(state.connected, p.fullRelative, p.sensitivity, state.displayAspect, pointer, actions,
+                            Modifier.fillMaxWidth().weight(1f), p.laserColor)
+                        Row(Modifier.fillMaxWidth().height(if (compact) 56.dp else 76.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PageButton(false, state.connected, { actions.page(false) }, Modifier.weight(.4f).fillMaxHeight())
+                            PageButton(true, state.connected, { actions.page(true) }, Modifier.weight(.6f).fillMaxHeight())
+                        }
+                    }
+                    "air" -> AirWorkspace(state, actions)
+                    else -> OneHandWorkspace(p, state.connected, actions, pointer, draft, setDraft, Modifier.fillMaxSize())
                 }
-                else -> OneHandWorkspace(p, state.connected, actions, pointer, draft, setDraft,
-                    Modifier.fillMaxWidth().height(if (draft == null) workspaceHeight else 300.dp))
             }
-            if (draft != null) {
-                CardGroup {
-                    Edge.entries.forEach { edge ->
-                        val value = when (edge) { Edge.LEFT -> draft.left; Edge.RIGHT -> draft.right; Edge.TOP -> draft.top; Edge.BOTTOM -> draft.bottom }
-                        val name = when (edge) { Edge.LEFT -> s.t("左边距", "Left margin"); Edge.RIGHT -> s.t("右边距", "Right margin"); Edge.TOP -> s.t("上边距", "Top margin"); Edge.BOTTOM -> s.t("下边距", "Bottom margin") }
-                        Text("$name · ${(value * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-                        Slider(value = value, onValueChange = { setDraft(draft.withEdge(edge, it)) }, valueRange = 0f..if (edge == Edge.LEFT || edge == Edge.RIGHT) .58f else .6f,
-                            modifier = Modifier.semantics { contentDescription = name })
-                    }
+            if (!compact) Text(
+                when {
+                    draft != null -> s.t("拖动四边圆点 · 保存后生效", "Drag an edge handle · Save to apply")
+                    !state.connected -> s.t("请先连接电脑以启用演示控制", "Connect a computer to enable controls")
+                    locked -> s.t("布局已锁定 · 点按锁图标解锁", "Layout locked · Tap the lock to unlock")
+                    p.mode == "slides" -> s.t("先在电脑上开始幻灯片放映", "Start the slideshow on your computer")
+                    p.mode == "air" -> s.t("按住轻转手机 · 松手隐藏 · 可随时归零", "Hold and rotate gently · Release to hide · Recenter anytime")
+                    else -> s.t("按住移动 · 松手隐藏", "Hold to move · Release to hide")
+                }, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    if (statusOpen) AlertDialog(onDismissRequest = { statusOpen = false }, title = { Text(s.t("连接与控制状态", "Connection and controls")) },
+        text = { Text(state.statusError ?: state.statusText) }, confirmButton = { TextButton(onClick = { statusOpen = false }) { Text(s.t("关闭", "Close")) } })
+    if (draft != null && marginsOpen) AlertDialog(onDismissRequest = { marginsOpen = false },
+        title = { Text(s.t("触控区边距", "Touch area margins")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Edge.entries.forEach { edge ->
+                    val value = when (edge) { Edge.LEFT -> draft.left; Edge.RIGHT -> draft.right; Edge.TOP -> draft.top; Edge.BOTTOM -> draft.bottom }
+                    val name = when (edge) { Edge.LEFT -> s.t("左边距", "Left margin"); Edge.RIGHT -> s.t("右边距", "Right margin"); Edge.TOP -> s.t("上边距", "Top margin"); Edge.BOTTOM -> s.t("下边距", "Bottom margin") }
+                    Text(name + " · " + (value * 100).roundToInt() + "%", style = MaterialTheme.typography.labelLarge)
+                    Slider(value = value, onValueChange = { setDraft(draft.withEdge(edge, it)) },
+                        valueRange = 0f..if (edge == Edge.LEFT || edge == Edge.RIGHT) .58f else .6f,
+                        modifier = Modifier.semantics { contentDescription = name })
                 }
-            } else Text(if (!state.connected) s.t("请先连接电脑以启用演示控制", "Connect a computer to enable controls")
-                else if (locked) s.t("布局已锁定 · 点按锁图标解锁", "Layout locked · Tap the lock to unlock")
-                else if (p.mode == "slides") s.t("先在电脑上开始幻灯片放映", "Start the slideshow on your computer first")
-                else s.t("按住移动 · 松手隐藏", "Hold to move · Release to hide"),
-                modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
+            }
+        }, confirmButton = { TextButton(onClick = { marginsOpen = false }) { Text(s.t("完成", "Done")) } })
+}
+
+@Composable
+private fun AirWorkspace(state: UiState, actions: UiActions) {
+    val s = LocalCopy.current
+    val currentActions by rememberUpdatedState(actions)
+    val enabled = state.connected && state.airAvailable
+    DisposableEffect(Unit) { onDispose { currentActions.airHold(false) } }
+    @Composable fun Pad(modifier: Modifier) {
+        Box(modifier.clip(RoundedCornerShape(24.dp))
+            .background(if (state.airActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp))
+            .semantics { contentDescription = s.t("按住激活空中指针", "Hold to activate air pointer"); if (!enabled) disabled() }
+            .pointerInput(enabled) {
+                if (enabled) detectTapGestures(onPress = {
+                    currentActions.airHold(true)
+                    try { awaitRelease() } finally { currentActions.airHold(false) }
+                })
+            }, contentAlignment = Alignment.Center) {
+            Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.ScreenRotation, null, Modifier.size(44.dp),
+                    tint = if (state.airActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(when {
+                    !state.airAvailable -> s.t("此设备无旋转传感器，请用触控模式", "No rotation sensor. Use touch mode.")
+                    state.airActive -> s.t("轻转手机进行指示", "Rotate gently to point")
+                    else -> s.t("按住激活空中指针", "Hold to activate air pointer")
+                }, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+    @Composable fun Recenter(modifier: Modifier) {
+        OutlinedButton(onClick = actions.calibrateAir, enabled = state.airAvailable, modifier = modifier.heightIn(min = 48.dp)) {
+            Icon(Icons.Default.GpsFixed, null); Spacer(Modifier.width(8.dp)); Text(s.t("归零校准", "Recenter"))
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxHeight < 240.dp) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pad(Modifier.weight(1f).fillMaxHeight())
+            Column(Modifier.width(150.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PageButton(false, state.connected, { actions.page(false) }, Modifier.weight(1f).fillMaxHeight())
+                    PageButton(true, state.connected, { actions.page(true) }, Modifier.weight(1f).fillMaxHeight())
+                }
+                Recenter(Modifier.fillMaxWidth())
+            }
+        } else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pad(Modifier.fillMaxWidth().weight(1f))
+            Row(Modifier.fillMaxWidth().height(70.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PageButton(false, state.connected, { actions.page(false) }, Modifier.weight(.4f).fillMaxHeight())
+                PageButton(true, state.connected, { actions.page(true) }, Modifier.weight(.6f).fillMaxHeight())
+            }
+            Recenter(Modifier.fillMaxWidth())
         }
     }
 }
@@ -356,9 +458,19 @@ private fun PageButton(next: Boolean, enabled: Boolean, onClick: () -> Unit, mod
         colors = ButtonDefaults.buttonColors(containerColor = if (accent) ThemeColors[LocalThemeIndex.current] else Color(0xFF263246),
             contentColor = if (accent) Color(0xFF111722) else Color(0xFFF4F6FB)),
         border = BorderStroke(1.dp, if (accent) Color.Transparent else Color(0xFF344052)), contentPadding = PaddingValues(8.dp)) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(if (next) Icons.Default.ChevronRight else Icons.Default.ChevronLeft, null, Modifier.size(if (next) 32.dp else 26.dp))
-            Text(if (next) s.t("下一页", "Next") else s.t("上一页", "Previous"), fontWeight = FontWeight.SemiBold)
+        val label = if (next) s.t("下一页", "Next") else s.t("上一页", "Previous")
+        val arrow = if (next) Icons.Default.ChevronRight else Icons.Default.ChevronLeft
+        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            val compact = maxHeight < 72.dp
+            val labelStyle = if (maxWidth < 72.dp) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
+            if (maxHeight < 40.dp) Text(label, style = labelStyle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else if (compact && maxWidth >= 96.dp) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(arrow, null, Modifier.size(24.dp))
+                Text(label, style = labelStyle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 8.dp)) {
+                Icon(arrow, null, Modifier.size(if (compact) 20.dp else if (next) 32.dp else 26.dp))
+                Text(label, style = labelStyle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

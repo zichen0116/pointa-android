@@ -26,6 +26,10 @@ class DeviceStoreTest {
             assertFalse(encrypted.contains(device.credential))
             assertFalse(encrypted.contains(device.name))
             assertTrue(store.forget(device.serverId).isEmpty())
+            assertTrue("A delayed connection update cannot restore a forgotten device", store.touch(device.copy(lastConnectedAt = 2345)).isEmpty())
+            val replacement = device.copy(deviceId = "d".repeat(32), credential = "Q" + "A".repeat(42))
+            store.remember(replacement)
+            assertEquals("An old connection cannot overwrite a new pairing", replacement, store.touch(device.copy(lastConnectedAt = 3456)).single())
             preferences.edit().putString("devices", "damaged-record").commit()
             assertThrows(Exception::class.java) { store.load() }
             assertEquals("damaged-record", preferences.getString("devices", ""))

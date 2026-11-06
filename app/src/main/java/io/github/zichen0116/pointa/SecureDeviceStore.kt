@@ -48,6 +48,13 @@ class SecureDeviceStore(context: Context) {
 
     @Synchronized fun forget(serverId: String): List<KnownComputer> = load().filterNot { it.serverId == serverId }.also(::save)
 
+    @Synchronized fun touch(computer: KnownComputer): List<KnownComputer> {
+        val existing = load()
+        if (existing.none { it.serverId == computer.serverId && it.deviceId == computer.deviceId && it.credential == computer.credential }) return existing
+        validate(computer)
+        return (listOf(computer) + existing.filterNot { it.serverId == computer.serverId }).also(::save)
+    }
+
     private fun save(computers: List<KnownComputer>) {
         require(computers.size <= 100)
         val array = JSONArray()

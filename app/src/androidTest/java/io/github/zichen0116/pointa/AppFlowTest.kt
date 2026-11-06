@@ -1,6 +1,9 @@
 package io.github.zichen0116.pointa
 
 import android.util.Base64
+import android.app.UiAutomation
+import android.content.res.Configuration
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -21,7 +24,7 @@ class AppFlowTest {
         compose.runOnUiThread { model = ViewModelProvider(compose.activity)[PointaViewModel::class.java] }
         compose.waitUntil(5000) { model.ready }
         compose.runOnUiThread {
-            model.changePreferences(model.preferences.value.copy(onboardingDone = true, language = "zh", autoReconnect = true))
+            model.changePreferences(model.preferences.value.copy(onboardingDone = true, language = "zh", autoReconnect = true, mode = "one"))
             model.connectQr(fixture.getString("qr").replace("host=127.0.0.1&", "host=10.0.2.2&"))
         }
         compose.waitUntil(15000) { model.ui.value.connected }
@@ -40,6 +43,22 @@ class AppFlowTest {
             bitmap.recycle()
         }
         screenshot("one-hand-zh.png")
+        for (mode in listOf("full", "slides", "air")) {
+            compose.runOnUiThread { model.changePreferences(model.preferences.value.copy(mode = mode)) }
+            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+            compose.onNodeWithText("下一页").assertIsDisplayed()
+        }
+        screenshot("air-pointer-zh.png")
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        try {
+            assertTrue(automation.setRotation(UiAutomation.ROTATION_FREEZE_90))
+            compose.waitUntil(5000) { runCatching { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }.getOrDefault(false) }
+            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+            compose.onNodeWithText("下一页").assertIsDisplayed()
+            screenshot("air-landscape-zh.png")
+        } finally { automation.setRotation(UiAutomation.ROTATION_FREEZE_0) }
+        compose.waitUntil(5000) { runCatching { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }.getOrDefault(false) }
+        compose.runOnUiThread { model.changePreferences(model.preferences.value.copy(mode = "one")) }
         compose.onNodeWithContentDescription("个性化设置").performClick()
         compose.onNodeWithText("主题颜色").assertExists()
         screenshot("settings-zh.png")

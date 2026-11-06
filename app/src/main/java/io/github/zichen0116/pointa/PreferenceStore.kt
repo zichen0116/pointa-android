@@ -36,7 +36,7 @@ class PreferenceStore(context: Context) {
 
     private fun validate(p: Preferences) {
         require(p.theme in 0..5 && p.appearance in setOf("dark", "light", "system") && p.language in setOf("zh", "en", "system"))
-        require(p.mode in setOf("one", "full", "slides") && p.trailMs in 100..1200 && p.sensitivity in 10..100)
+        require(p.mode in setOf("one", "full", "slides", "air") && p.trailMs in 100..1200 && p.sensitivity in 10..100)
         require(p.laserColor.matches(Regex("#[0-9a-fA-F]{6}")) && p.laserSize in setOf("small", "medium", "large") && p.smoothing in setOf("low", "standard", "high"))
         require(p.prevVolume in setOf("0", "+", "-") && p.nextVolume in setOf("0", "+", "-"))
         require(p.prevVolume == "0" || p.prevVolume != p.nextVolume)

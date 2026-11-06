@@ -20,7 +20,6 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.*
-import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -40,27 +39,26 @@ fun CameraScanner(title: String, hint: String, cancel: String, onResult: (String
         val preview = Preview.Builder().build().apply { surfaceProvider = previewView.surfaceProvider }
         val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
         val reader = MultiFormatReader().apply { setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE))) }
+        fun failOnce() {
+            if (!stopped.get() && detected.compareAndSet(false, true)) main.execute { if (!stopped.get()) error() }
+        }
         analysis.setAnalyzer(executor) { image ->
             try {
                 if (!stopped.get() && !detected.get()) {
                     val plane = image.planes[0]
                     val buffer = plane.buffer.duplicate()
-                    val data = ByteArray(image.width * image.height)
-                    for (row in 0 until image.height) for (column in 0 until image.width) {
-                        data[row * image.width + column] = buffer.get(row * plane.rowStride + column * plane.pixelStride)
-                    }
-                    val source = PlanarYUVLuminanceSource(data, image.width, image.height, 0, 0, image.width, image.height, false)
-                    val decoded = reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
-                    if (decoded.length <= 2048 && detected.compareAndSet(false, true)) main.execute { if (!stopped.get()) result(decoded) }
+                    val crop = image.cropRect
+                    val decoded = decodeQrFrame(buffer, image.width, image.height, plane.rowStride, plane.pixelStride,
+                        crop.left, crop.top, crop.width(), crop.height(), reader)
+                    if (decoded != null && detected.compareAndSet(false, true)) main.execute { if (!stopped.get()) result(decoded) }
                 }
-            } catch (_: ReaderException) { /* The next frame may contain a readable QR. */ }
-            catch (_: RuntimeException) { if (!stopped.get()) main.execute { error() } }
-            finally { reader.reset(); image.close() }
+            } catch (_: RuntimeException) { failOnce() }
+            finally { image.close() }
         }
         future.addListener({
             if (!stopped.get()) try {
                 future.get().bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-            } catch (_: Exception) { error() }
+            } catch (_: Exception) { failOnce() }
         }, main)
         onDispose {
             stopped.set(true)

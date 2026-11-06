@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import io.github.zichen0116.pointa.BuildConfig
 
 @Composable
 internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBack: () -> Unit, onDevices: () -> Unit) {
@@ -75,7 +76,7 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
         CardGroup {
             SectionTitle(s.t("触控与布局", "Touch and layout"))
             SettingSlider(s.t("控制灵敏度", "Sensitivity"), p.sensitivity, 10, 100, 5, "%") { update(p.copy(sensitivity = it)) }
-            Text(s.t("用于相对位移模式；60% 为标准速度。", "Used for relative movement. 60% is the standard speed."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(s.t("用于相对触控与空中指针；60% 为标准速度。", "Used for relative touch and air pointing. 60% is the standard speed."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Choice(s.t("惯用手", "Preferred hand"), if (p.leftHand) "left" else "right",
                 listOf("left" to s.t("左手", "Left"), "right" to s.t("右手", "Right"))) { update(p.copy(leftHand = it == "left")) }
             Choice(s.t("全屏映射", "Full-screen mapping"), if (p.fullRelative) "relative" else "absolute",
@@ -108,9 +109,9 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
             }
         }
         CardGroup {
-            SectionTitle("映点 Pointa · 0.1.0")
+            SectionTitle("映点 Pointa · ${BuildConfig.VERSION_NAME}")
             Text(s.t("让手机成为你的演示伙伴。\n指示和翻页相互独立，激光不会移动电脑鼠标。", "Your phone, ready to present.\nLaser pointing and slide navigation are independent; the computer mouse stays where it is."), style = MaterialTheme.typography.bodyMedium)
-            Text(s.t("采用 Kotlin、AndroidX、OkHttp、Bouncy Castle 与 ZXing。\n空中指针仍在规划中，此版本提供触控与翻页。", "Built with Kotlin, AndroidX, OkHttp, Bouncy Castle and ZXing.\nAir pointing is planned; this version supports touch and slide control."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(s.t("采用 Kotlin、AndroidX、OkHttp、Bouncy Castle 与 ZXing。\n空中指针使用旋转传感器；按住激活，松手隐藏，可随时归零。", "Built with Kotlin, AndroidX, OkHttp, Bouncy Castle and ZXing.\nAir pointer uses a rotation sensor. Hold to activate, release to hide, and recenter anytime."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = { showLicenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("开源许可", "Open-source licenses")) }
             OutlinedButton(onClick = { reset = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("恢复默认设置", "Reset preferences")) }
         }
