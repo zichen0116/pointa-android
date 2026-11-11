@@ -1,5 +1,22 @@
 # 构建与验证记录
 
+## 0.1.2 交互精简与参考姿态算法（2026-11-11/12）
+
+| 检查 | 实际结果与边界 |
+| --- | --- |
+| JVM | 33 个通过、0 跳过：协议 20、几何 5、姿态 5、扫码帧 2、主题映射 1 |
+| 姿态参考 | 直接调用原 TypeScript 生成的 16 组/128 个姿态及重力样本全部通过；校准、重握、滤波采样率和非法输入检查通过 |
+| Android 16.1 模拟器 | 8 个设备测试通过：传感器采样/停止、存储与偏好迁移、原位四边拖动/自动保存/恢复默认、Windows 真实协议互通 |
+| MainActivity 完整流程 | 1 个通过：配对、控制、编辑保存到磁盘、四模式与旋转、设置页、后台重连、遗忘 |
+| Toast | 重复失败通知均被接收，不写入常驻 statusError；捕获系统通知可访问性事件，截图看到短 Toast，稍后截图确认消失；离开前台取消提示 |
+| 触觉 | 实际点击后 `dumpsys vibrator_manager` 记录 Pointa 的 `Prebaked=CLICK`、TOUCH 用途和 finished 状态；这证明系统请求完成，不等于已确认真机手感 |
+| 设置 | 没有独立激光颜色、触觉开关或许可入口；底部欢迎 PR/issue 与 GitHub 链接可见；旧 JSON 中的颜色/触觉字段被忽略，其他布局偏好保留 |
+| 构建/Lint | debug APK 与测试 APK 构建成功；Lint 0 errors、13 warnings，无 baseline |
+
+合计 **42 项测试（33 JVM + 9 设备）**。Toast 截图在替换旧提示后的入场动画结束时采集；此前 300 ms 采集过早，不能把空画面冒充显示成功。最终 `action-toast-zh.png` 和 `after-toast-zh.png` 已分别检查。设置底部链接与原位编辑截图也已检查。
+
+证据：`artifacts/v0.1.2-build.log`、`v0.1.2-toast-build.log`、`v0.1.2-device-smoke.txt`、`v0.1.2-app-flow.txt`、`v0.1.2-vibration.txt`、`v0.1.2-previews/`。交付 `artifacts/Pointa-0.1.2-debug.apk`；配套 Windows 0.1.4 的网页拖尾来源和基准见 [参考算法对齐](reference-alignment.md)。未接入物理手机，真实震感、空中指针漂移/握持、扫码与 Wi-Fi 延迟仍待实测；仍使用开发签名。历史验证如下。
+
 日期：2026-11-05。这里只记录实际执行结果；尚未运行或需要真实硬件的项目保持待验证。
 
 ## Windows 配套协议增量：已执行

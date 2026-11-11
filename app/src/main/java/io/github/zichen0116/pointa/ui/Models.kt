@@ -1,5 +1,7 @@
 package io.github.zichen0116.pointa.ui
 
+internal val ThemeColorHex = listOf("#111722", "#FF6475", "#32B894", "#4D95ED", "#D69A47", "#B58AE9")
+
 /** Values are persisted by the application layer; UI never reads credentials or performs I/O. */
 data class Preferences(
     val theme: Int = 0,
@@ -13,18 +15,18 @@ data class Preferences(
     val trailEnabled: Boolean = true,
     val trailMs: Int = 500,
     val sensitivity: Int = 60,
-    val laserColor: String = "#FF6475",
     val laserSize: String = "medium", // small, medium, large
     val smoothing: String = "standard", // low, standard, high
     val volumeEnabled: Boolean = true,
     val prevVolume: String = "-", // 0, +, -
     val nextVolume: String = "+",
     val keepScreenOn: Boolean = true,
-    val haptics: Boolean = true,
     val autoReconnect: Boolean = true,
     val reduceMotion: Boolean = false,
     val onboardingDone: Boolean = false,
-)
+) {
+    val laserColor: String get() = ThemeColorHex[theme.coerceIn(0, ThemeColorHex.lastIndex)]
+}
 
 data class Margins(val left: Float = 0f, val right: Float = 0f, val top: Float = 0f, val bottom: Float = 0f)
 
@@ -44,6 +46,7 @@ data class UiState(
     val displayAspect: Float? = null,
     val airAvailable: Boolean = false,
     val airActive: Boolean = false,
+    val airUsesTilt: Boolean = false,
 )
 
 data class UiActions(

@@ -26,6 +26,8 @@ fun Margins.withEdge(edge: Edge, value: Float): Margins {
     }
 }
 
+fun Margins.valueFor(edge: Edge): Float = when (edge) { Edge.LEFT -> left; Edge.RIGHT -> right; Edge.TOP -> top; Edge.BOTTOM -> bottom }
+
 fun oneHandGeometry(width: Float, height: Float, gap: Float, leftHand: Boolean, margins: Margins): OneHandGeometry {
     val w = width.safe().coerceAtLeast(1f)
     val h = height.safe().coerceAtLeast(1f)

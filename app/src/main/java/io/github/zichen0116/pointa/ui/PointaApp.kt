@@ -44,7 +44,7 @@ internal class Copy(private val chinese: Boolean) {
     fun t(zh: String, en: String) = if (chinese) zh else en
 }
 internal val LocalCopy = staticCompositionLocalOf { Copy(true) }
-internal val ThemeColors = listOf(0xFF111722, 0xFFFF6475, 0xFF32B894, 0xFF4D95ED, 0xFFD69A47, 0xFFB58AE9).map(::Color)
+internal val ThemeColors = ThemeColorHex.map { Color(android.graphics.Color.parseColor(it)) }
 internal val LocalThemeIndex = staticCompositionLocalOf { 0 }
 private class PointerMemory(var point: Point = Point(.5f, .5f))
 
@@ -70,24 +70,24 @@ fun PointaApp(state: UiState, preferences: Preferences, onPreferencesChange: (Pr
         CompositionLocalProvider(LocalCopy provides copy, LocalThemeIndex provides theme) {
             var panel by rememberSaveable { mutableStateOf<String?>(if (state.connected) null else "devices") }
             var locked by rememberSaveable { mutableStateOf(false) }
-            var draft by remember { mutableStateOf<Margins?>(null) }
+            var editing by rememberSaveable { mutableStateOf(false) }
             val pointer = remember { PointerMemory() }
             val currentActions by rememberUpdatedState(actions)
-            val controlActive = panel == null && draft == null && preferences.onboardingDone && state.connected && !state.scanning
+            val controlActive = panel == null && !editing && preferences.onboardingDone && state.connected && !state.scanning
             LaunchedEffect(controlActive) {
                 currentActions.onControlActive(controlActive)
                 if (!controlActive) currentActions.hide()
             }
             DisposableEffect(Unit) { onDispose { currentActions.hide(); currentActions.onControlActive(false) } }
             LaunchedEffect(state.connected) { if (state.connected) panel = null }
-            BackHandler(panel != null || draft != null || locked) {
-                when { panel != null -> panel = null; draft != null -> draft = null; locked -> locked = false }
+            BackHandler(panel != null || editing || locked) {
+                when { panel != null -> panel = null; editing -> editing = false; locked -> locked = false }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = scheme.background) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     if (!preferences.onboardingDone) Onboarding { onPreferencesChange(preferences.copy(onboardingDone = true)) }
                     else ControlScreen(state, preferences, onPreferencesChange, actions, pointer,
-                        locked, { locked = it }, draft, { draft = it },
+                        locked, { locked = it }, editing, { editing = it },
                         onDevices = { panel = "devices" }, onSettings = { panel = "settings" })
                 }
             }
@@ -111,7 +111,7 @@ private fun Onboarding(onDone: () -> Unit) {
     val titles = listOf(s.t("手机就是翻页笔", "Your phone. Your presenter."), s.t("按住指示，松手隐藏", "Hold to point. Release to hide."), s.t("专注每一次演示", "Stay focused on your presentation"))
     val descriptions = listOf(s.t("让手机和电脑连接同一 Wi-Fi，扫描 Windows 端二维码，或输入设备码完成配对。", "Connect both devices to the same Wi-Fi. Scan the Windows QR code, or use its pairing code."),
         s.t("单手模式像触控板一样移动光点。全屏模式对应电脑屏幕；激光与系统鼠标相互独立。", "One-hand mode works like a trackpad. Full-screen mode maps to the display. The laser stays separate from the system mouse."),
-        s.t("大按钮和音量键都能翻页。演示前先在电脑打开幻灯片放映；随时可以调整惯用手、触觉和激光效果。", "Use the large buttons or volume keys to turn slides. Start the slideshow on your PC first. Adjust your preferred hand, haptics and laser anytime."))
+        s.t("大按钮和音量键都能翻页。演示前先在电脑打开幻灯片放映；随时可以调整惯用手和激光效果。", "Use the large buttons or volume keys to turn slides. Start the slideshow on your PC first. Adjust your preferred hand and laser anytime."))
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("映点 Pointa", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
@@ -273,10 +273,9 @@ private fun DeviceScreen(state: UiState, actions: UiActions, onBack: () -> Unit,
 
 @Composable
 private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) -> Unit, actions: UiActions, pointer: PointerMemory,
-    locked: Boolean, onLock: (Boolean) -> Unit, draft: Margins?, setDraft: (Margins?) -> Unit, onDevices: () -> Unit, onSettings: () -> Unit) {
+    locked: Boolean, onLock: (Boolean) -> Unit, editing: Boolean, setEditing: (Boolean) -> Unit, onDevices: () -> Unit, onSettings: () -> Unit) {
     val s = LocalCopy.current
     var modesOpen by remember { mutableStateOf(false) }
-    var marginsOpen by remember { mutableStateOf(false) }
     var statusOpen by remember { mutableStateOf(false) }
     val modeName = when (p.mode) {
         "full" -> s.t("全屏触控", "Full-screen")
@@ -297,13 +296,13 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                     if (!compact) Text(if (state.connected) s.t("已连接", "Connected") else s.t("尚未连接", "Disconnected"),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { onLock(!locked) }, enabled = draft == null) {
+                IconButton(onClick = { onLock(!locked) }, enabled = !editing) {
                     Icon(if (locked) Icons.Default.Lock else Icons.Default.LockOpen,
                         if (locked) s.t("解锁布局", "Unlock layout") else s.t("锁定布局", "Lock layout"))
                 }
                 if (!locked) {
-                    IconButton(onClick = onDevices, enabled = draft == null) { Icon(Icons.Default.Computer, s.t("连接设备", "Devices")) }
-                    IconButton(onClick = onSettings, enabled = draft == null) { Icon(Icons.Default.Settings, s.t("个性化设置", "Settings")) }
+                    IconButton(onClick = onDevices, enabled = !editing) { Icon(Icons.Default.Computer, s.t("连接设备", "Devices")) }
+                    IconButton(onClick = onSettings, enabled = !editing) { Icon(Icons.Default.Settings, s.t("个性化设置", "Settings")) }
                 }
             }
             if (state.statusError != null || state.connecting) {
@@ -314,11 +313,11 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
-                    TextButton(onClick = { modesOpen = true }, enabled = !locked && draft == null,
+                    TextButton(onClick = { modesOpen = true }, enabled = !locked && !editing,
                         contentPadding = PaddingValues(horizontal = 0.dp)) {
-                        Text(modeName, Modifier.weight(1f, fill = false), fontSize = if (compact) 18.sp else 22.sp,
+                        Text(if (editing) s.t("调整触控区", "Adjust touch area") else modeName, Modifier.weight(1f, fill = false), fontSize = if (compact) 18.sp else 22.sp,
                             fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
-                        if (!locked) Icon(Icons.Default.ExpandMore, null)
+                        if (!locked && !editing) Icon(Icons.Default.ExpandMore, null)
                     }
                     DropdownMenu(expanded = modesOpen, onDismissRequest = { modesOpen = false }) {
                         listOf("one" to s.t("单手模式", "One-hand"), "full" to s.t("全屏触控", "Full-screen"),
@@ -327,25 +326,18 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                         }
                     }
                 }
-                if (p.mode == "one" && !locked && draft == null) {
+                if (p.mode == "one" && !locked && !editing) {
                     TextButton(onClick = { update(p.copy(leftHand = !p.leftHand)) }) { Text(if (p.leftHand) s.t("左手", "Left") else s.t("右手", "Right")) }
-                    IconButton(onClick = { actions.hide(); setDraft(if (p.leftHand) p.leftMargins else p.rightMargins) }) {
+                    IconButton(onClick = { actions.hide(); setEditing(true) }) {
                         Icon(Icons.Default.Edit, s.t("编辑触控区域", "Edit touch area"))
                     }
                 }
-                if (p.mode != "slides" && draft == null) IconButton(onClick = actions.hide, enabled = state.connected) {
-                    Icon(Icons.Default.VisibilityOff, s.t("立即隐藏激光", "Hide laser now"))
+                if (editing) {
+                    TextButton(onClick = { update(if (p.leftHand) p.copy(leftMargins = Margins()) else p.copy(rightMargins = Margins())) }) { Text(s.t("重置", "Reset")) }
+                    IconButton(onClick = { setEditing(false) }) { Icon(Icons.Default.Check, s.t("完成编辑", "Finish editing")) }
                 }
-            }
-            if (draft != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedButton(onClick = { setDraft(null) }, modifier = Modifier.weight(1f)) { Text(s.t("取消", "Cancel")) }
-                    TextButton(onClick = { setDraft(Margins()) }, modifier = Modifier.weight(1f)) { Text(s.t("重置", "Reset")) }
-                    Button(onClick = {
-                        update(if (p.leftHand) p.copy(leftMargins = draft.normalized()) else p.copy(rightMargins = draft.normalized()))
-                        setDraft(null)
-                    }, modifier = Modifier.weight(1f)) { Text(s.t("保存", "Save")) }
-                    IconButton(onClick = { marginsOpen = true }) { Icon(Icons.Default.Tune, s.t("边距数值", "Margin values")) }
+                if (p.mode != "slides" && !editing) IconButton(onClick = actions.hide, enabled = state.connected) {
+                    Icon(Icons.Default.VisibilityOff, s.t("立即隐藏激光", "Hide laser now"))
                 }
             }
             Box(Modifier.fillMaxWidth().weight(1f).testTag("control-workspace")) {
@@ -363,16 +355,19 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                         }
                     }
                     "air" -> AirWorkspace(state, actions)
-                    else -> OneHandWorkspace(p, state.connected, actions, pointer, draft, setDraft, Modifier.fillMaxSize())
+                    else -> OneHandWorkspace(p, state.connected, actions, pointer, editing, { margins ->
+                        update(if (p.leftHand) p.copy(leftMargins = margins.normalized()) else p.copy(rightMargins = margins.normalized()))
+                    }, Modifier.fillMaxSize())
                 }
             }
             if (!compact) Text(
                 when {
-                    draft != null -> s.t("拖动四边圆点 · 保存后生效", "Drag an edge handle · Save to apply")
+                    editing -> s.t("拖动边缘调整 · 自动保存", "Drag an edge · Saved automatically")
                     !state.connected -> s.t("请先连接电脑以启用演示控制", "Connect a computer to enable controls")
                     locked -> s.t("布局已锁定 · 点按锁图标解锁", "Layout locked · Tap the lock to unlock")
                     p.mode == "slides" -> s.t("先在电脑上开始幻灯片放映", "Start the slideshow on your computer")
-                    p.mode == "air" -> s.t("按住轻转手机 · 松手隐藏 · 可随时归零", "Hold and rotate gently · Release to hide · Recenter anytime")
+                    p.mode == "air" -> if (state.airUsesTilt) s.t("按住倾斜手机 · 松手隐藏", "Hold and tilt · Release to hide")
+                        else s.t("手机上边缘朝向屏幕 · 按住轻转", "Point the phone's top edge at the screen · Hold and rotate")
                     else -> s.t("按住移动 · 松手隐藏", "Hold to move · Release to hide")
                 }, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -380,20 +375,7 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
     }
     if (statusOpen) AlertDialog(onDismissRequest = { statusOpen = false }, title = { Text(s.t("连接与控制状态", "Connection and controls")) },
         text = { Text(state.statusError ?: state.statusText) }, confirmButton = { TextButton(onClick = { statusOpen = false }) { Text(s.t("关闭", "Close")) } })
-    if (draft != null && marginsOpen) AlertDialog(onDismissRequest = { marginsOpen = false },
-        title = { Text(s.t("触控区边距", "Touch area margins")) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Edge.entries.forEach { edge ->
-                    val value = when (edge) { Edge.LEFT -> draft.left; Edge.RIGHT -> draft.right; Edge.TOP -> draft.top; Edge.BOTTOM -> draft.bottom }
-                    val name = when (edge) { Edge.LEFT -> s.t("左边距", "Left margin"); Edge.RIGHT -> s.t("右边距", "Right margin"); Edge.TOP -> s.t("上边距", "Top margin"); Edge.BOTTOM -> s.t("下边距", "Bottom margin") }
-                    Text(name + " · " + (value * 100).roundToInt() + "%", style = MaterialTheme.typography.labelLarge)
-                    Slider(value = value, onValueChange = { setDraft(draft.withEdge(edge, it)) },
-                        valueRange = 0f..if (edge == Edge.LEFT || edge == Edge.RIGHT) .58f else .6f,
-                        modifier = Modifier.semantics { contentDescription = name })
-                }
-            }
-        }, confirmButton = { TextButton(onClick = { marginsOpen = false }) { Text(s.t("完成", "Done")) } })
+
 }
 
 @Composable
@@ -418,8 +400,9 @@ private fun AirWorkspace(state: UiState, actions: UiActions) {
                     tint = if (state.airActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(when {
                     !state.airAvailable -> s.t("此设备无旋转传感器，请用触控模式", "No rotation sensor. Use touch mode.")
+                    state.airUsesTilt -> s.t("按住后左右倾斜、前后俯仰", "Hold, then tilt left/right or forward/back")
                     state.airActive -> s.t("轻转手机进行指示", "Rotate gently to point")
-                    else -> s.t("按住激活空中指针", "Hold to activate air pointer")
+                    else -> s.t("手机上边缘朝向屏幕\n按住激活空中指针", "Point the phone's top edge at the screen\nHold to activate air pointer")
                 }, style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -476,21 +459,22 @@ private fun PageButton(next: Boolean, enabled: Boolean, onClick: () -> Unit, mod
 }
 
 @Composable
-private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiActions, pointer: PointerMemory, draft: Margins?, setDraft: (Margins?) -> Unit, modifier: Modifier) {
+private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiActions, pointer: PointerMemory, editing: Boolean, setMargins: (Margins) -> Unit, modifier: Modifier) {
     val density = LocalDensity.current
     val s = LocalCopy.current
-    val margins = draft ?: if (p.leftHand) p.leftMargins else p.rightMargins
+    val margins = if (p.leftHand) p.leftMargins else p.rightMargins
+    val updateMargins by rememberUpdatedState(setMargins)
     BoxWithConstraints(modifier) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
         val geometry = oneHandGeometry(w, h, with(density) { 9.dp.toPx() }, p.leftHand, margins)
         fun Rect.modifier() = Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }.size(with(density) { width.toDp() }, with(density) { height.toDp() })
         Column(geometry.rail.modifier(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PageButton(false, enabled && draft == null, { actions.page(false) }, Modifier.fillMaxWidth().weight(.4f))
-            PageButton(true, enabled && draft == null, { actions.page(true) }, Modifier.fillMaxWidth().weight(.6f))
+            PageButton(false, enabled && !editing, { actions.page(false) }, Modifier.fillMaxWidth().weight(.4f))
+            PageButton(true, enabled && !editing, { actions.page(true) }, Modifier.fillMaxWidth().weight(.6f))
         }
-        LaserPad(enabled && draft == null, true, p.sensitivity, null, pointer, actions, geometry.touch.modifier(), p.laserColor, draft != null)
-        if (draft != null) {
+        LaserPad(enabled && !editing, true, p.sensitivity, null, pointer, actions, geometry.touch.modifier(), p.laserColor, editing)
+        if (editing) {
             Edge.entries.forEach { edge ->
                 val point = when (edge) {
                     Edge.LEFT -> Offset(geometry.touch.x, geometry.touch.y + geometry.touch.height / 2)
@@ -500,15 +484,21 @@ private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiAction
                 }
                 val half = with(density) { 24.dp.toPx() }
                 val name = when (edge) { Edge.LEFT -> s.t("调整左边", "Adjust left edge"); Edge.RIGHT -> s.t("调整右边", "Adjust right edge"); Edge.TOP -> s.t("调整上边", "Adjust top edge"); Edge.BOTTOM -> s.t("调整下边", "Adjust bottom edge") }
-                val latestDraft by rememberUpdatedState(draft)
+                val latestMargins by rememberUpdatedState(margins)
                 Box(Modifier.offset { IntOffset((point.x - half).coerceIn(0f, (w - half * 2).coerceAtLeast(0f)).roundToInt(), (point.y - half).coerceIn(0f, (h - half * 2).coerceAtLeast(0f)).roundToInt()) }
-                    .size(48.dp).semantics { contentDescription = name }
+                    .size(48.dp).semantics {
+                        contentDescription = name
+                        stateDescription = "${(margins.valueFor(edge) * 100).roundToInt()}%"
+                        customActions = listOf(
+                            CustomAccessibilityAction(s.t("向内调整", "Move inward")) { updateMargins(margins.withEdge(edge, margins.valueFor(edge) + .02f)); true },
+                            CustomAccessibilityAction(s.t("向外调整", "Move outward")) { updateMargins(margins.withEdge(edge, margins.valueFor(edge) - .02f)); true })
+                    }
                     .pointerInput(edge, geometry.containerWidth, h) {
                         detectDragGestures { change, amount ->
                             change.consume()
-                            val current = latestDraft ?: return@detectDragGestures
+                            val current = latestMargins
                             val value = when (edge) { Edge.LEFT -> current.left + amount.x / geometry.containerWidth; Edge.RIGHT -> current.right - amount.x / geometry.containerWidth; Edge.TOP -> current.top + amount.y / h; Edge.BOTTOM -> current.bottom - amount.y / h }
-                            setDraft(current.withEdge(edge, value))
+                            updateMargins(current.withEdge(edge, value))
                         }
                     }, contentAlignment = Alignment.Center) {
                     Box(Modifier.size(18.dp).background(MaterialTheme.colorScheme.primary, CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape))

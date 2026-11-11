@@ -20,7 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -28,15 +28,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
-import io.github.zichen0116.pointa.BuildConfig
 
 @Composable
 internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBack: () -> Unit, onDevices: () -> Unit) {
     val s = LocalCopy.current
     var reset by remember { mutableStateOf(false) }
     var mappingConflict by remember { mutableStateOf(false) }
-    var showLicenses by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    val links = LocalUriHandler.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PageHeader(s.t("个性化设置", "Settings"), onBack)
         CardGroup {
@@ -45,7 +43,7 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ThemeColors.forEachIndexed { index, color -> ColorSwatch(color, p.theme == index, names[index]) { update(p.copy(theme = index)) } }
             }
-            Text(names[p.theme.coerceIn(0, 5)] + s.t(" · 页面强调色，与激光颜色独立", " · Interface accent, separate from the laser"),
+            Text(s.t("主题与激光颜色同步", "The laser follows your theme color"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Choice(s.t("外观", "Appearance"), p.appearance,
                 listOf("dark" to s.t("深色", "Dark"), "light" to s.t("浅色", "Light"), "system" to s.t("跟随系统", "System"))) { update(p.copy(appearance = it)) }
@@ -56,14 +54,6 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
         }
         CardGroup {
             SectionTitle(s.t("激光效果", "Laser effects"))
-            Text(s.t("激光颜色", "Laser color"), style = MaterialTheme.typography.bodyMedium)
-            val lasers = listOf("#FF6475", "#32B894", "#4D95ED", "#FFD166", "#B58AE9", "#FFFFFF")
-            val laserNames = listOf(s.t("红色", "Red"), s.t("绿色", "Green"), s.t("蓝色", "Blue"), s.t("黄色", "Yellow"), s.t("紫色", "Purple"), s.t("白色", "White"))
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                lasers.forEachIndexed { index, color ->
-                    ColorSwatch(Color(android.graphics.Color.parseColor(color)), p.laserColor.equals(color, true), laserNames[index]) { update(p.copy(laserColor = color)) }
-                }
-            }
             Choice(s.t("指针大小", "Pointer size"), p.laserSize,
                 listOf("small" to s.t("小", "Small"), "medium" to s.t("中", "Medium"), "large" to s.t("大", "Large"))) { update(p.copy(laserSize = it)) }
             Choice(s.t("平滑级别", "Smoothing"), p.smoothing,
@@ -81,7 +71,7 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
                 listOf("left" to s.t("左手", "Left"), "right" to s.t("右手", "Right"))) { update(p.copy(leftHand = it == "left")) }
             Choice(s.t("全屏映射", "Full-screen mapping"), if (p.fullRelative) "relative" else "absolute",
                 listOf("absolute" to s.t("绝对坐标", "Absolute"), "relative" to s.t("相对位移", "Relative"))) { update(p.copy(fullRelative = it == "relative")) }
-            Text(s.t("单手模式始终采用相对位移。返回单手模式，点击铅笔可独立编辑左右手布局。", "One-hand mode always uses relative movement. Use its pencil button to edit and save each hand's layout separately."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(s.t("点击单手模式的铅笔，直接拖动触控区边缘，自动保存。", "Tap the pencil in one-hand mode and drag an edge. Changes save automatically."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         CardGroup {
             Toggle(s.t("音量键翻页", "Volume-key paging"), p.volumeEnabled, { update(p.copy(volumeEnabled = it)) })
@@ -100,20 +90,17 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
         CardGroup {
             SectionTitle(s.t("演示偏好", "Presentation preferences"))
             Toggle(s.t("保持屏幕常亮", "Keep screen awake"), p.keepScreenOn, { update(p.copy(keepScreenOn = it)) }, s.t("仅在已连接的演示页面生效", "Only during a connected presentation"))
-            Toggle(s.t("触觉反馈", "Haptic feedback"), p.haptics, { update(p.copy(haptics = it)) })
             Toggle(s.t("自动重连", "Auto-reconnect"), p.autoReconnect, { update(p.copy(autoReconnect = it)) }, s.t("前台启动时连接最近信任的电脑", "Reconnect to the last trusted computer on foreground launch"))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .35f))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onDevices), verticalAlignment = Alignment.CenterVertically) {
                 Text(s.t("设备与信任管理", "Computers and trust"), Modifier.weight(1f))
                 Icon(Icons.Default.ChevronRight, null)
             }
+            OutlinedButton(onClick = { reset = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("恢复默认设置", "Reset preferences")) }
         }
         CardGroup {
-            SectionTitle("映点 Pointa · ${BuildConfig.VERSION_NAME}")
-            Text(s.t("让手机成为你的演示伙伴。\n指示和翻页相互独立，激光不会移动电脑鼠标。", "Your phone, ready to present.\nLaser pointing and slide navigation are independent; the computer mouse stays where it is."), style = MaterialTheme.typography.bodyMedium)
-            Text(s.t("采用 Kotlin、AndroidX、OkHttp、Bouncy Castle 与 ZXing。\n空中指针使用旋转传感器；按住激活，松手隐藏，可随时归零。", "Built with Kotlin, AndroidX, OkHttp, Bouncy Castle and ZXing.\nAir pointer uses a rotation sensor. Hold to activate, release to hide, and recenter anytime."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { showLicenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("开源许可", "Open-source licenses")) }
-            OutlinedButton(onClick = { reset = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("恢复默认设置", "Reset preferences")) }
+            Text(s.t("欢迎提交 PR 和 issue", "PRs and issues are welcome"))
+            TextButton(onClick = { links.openUri("https://github.com/zichen0116/pointa-android") }) { Text("GitHub · Pointa") }
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -121,15 +108,6 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
         text = { Text(s.t("主题、激光、按键与左右手布局将恢复默认。已配对电脑会保留。", "Theme, laser, keys and both hand layouts will reset. Paired computers will be kept.")) },
         confirmButton = { TextButton(onClick = { update(Preferences(onboardingDone = true)); reset = false }) { Text(s.t("恢复默认", "Reset")) } },
         dismissButton = { TextButton(onClick = { reset = false }) { Text(s.t("取消", "Cancel")) } })
-    if (showLicenses) {
-        val notices = remember { context.assets.list("licenses").orEmpty().sorted().joinToString("\n\n") { name ->
-            val raw = context.assets.open("licenses/$name").bufferedReader().use { it.readText() }
-            "$name\n" + if (name.endsWith(".html")) android.text.Html.fromHtml(raw, 0).toString() else raw
-        } }
-        AlertDialog(onDismissRequest = { showLicenses = false }, title = { Text(s.t("开源许可", "Open-source licenses")) },
-            text = { Text(notices, Modifier.heightIn(max = 450.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
-            confirmButton = { TextButton(onClick = { showLicenses = false }) { Text(s.t("关闭", "Close")) } })
-    }
 }
 
 @Composable

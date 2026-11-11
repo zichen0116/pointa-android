@@ -11,6 +11,6 @@
 | ZXing core | 3.5.4 | Apache-2.0，见 [3.5.4 LICENSE](https://raw.githubusercontent.com/zxing/zxing/zxing-3.5.4/LICENSE) |
 | JUnit、AndroidX Test、MockWebServer、okhttp-tls | 见两个模块的 test 依赖 | 仅自动化测试使用；不作为应用运行时功能 |
 
-Pointa 的产品思路受 [lan-laser-pen](https://github.com/fuxing0910-hue/lan-laser-pen) 启发。Android 实现基于用户提供的 PRD、V5 设计和现有 Windows 协议编写；本轮没有复制 RemotePointer、gInk 或 ppInk 的源码。若后续直接复用参考项目代码，必须另行保留原版权、许可和修改说明。
+Pointa 的产品思路受 [lan-laser-pen](https://github.com/fuxing0910-hue/lan-laser-pen) 启发。0.1.2 的 `AirPointerMapper` 对齐其提交 `1e643ed5cb9c93056ed9a9b2dce4ecd3765ad67b` 的 `example/orientation.ts`，以 Kotlin 旋转矩阵实现同一方向基底、滤波、死区及倾斜回退，并适配原生生命周期。该提交采用 MIT，完整版权和许可保存在 `app/src/main/assets/licenses/lan-laser-pen-LICENSE.txt`。测试夹具由原始函数产生，见 [来源及改动](reference-alignment.md)。本轮没有复制 RemotePointer、gInk 或 ppInk 的源码。
 
-上述直接组件的许可原文已放入 `app/src/main/assets/licenses`，可在设置中的“开源许可”离线阅读。2026-11-05 查阅 Bouncy Castle 官方发布页后改用 1.86，并重新执行 SRP 固定向量、JVM→Windows 与 Android→Windows 互通验证。正式发行前仍须核对全部传递依赖及其 NOTICE；固定版本和测试通过不等于独立安全认证。
+上述直接组件的许可原文已放入 `app/src/main/assets/licenses` 并随 APK 分发。0.1.2 按用户要求移除设置中的许可入口，保留声明文件。2026-11-05 查阅 Bouncy Castle 官方发布页后改用 1.86，并重新执行 SRP 固定向量、JVM→Windows 与 Android→Windows 互通验证。正式发行前仍须核对全部传递依赖及其 NOTICE；固定版本和测试通过不等于独立安全认证。

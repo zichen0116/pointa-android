@@ -13,7 +13,9 @@ internal class AirPointerController(context: Context, private val move: (Double,
     private val hide: () -> Unit, private val changed: (Boolean) -> Unit, private val unavailable: () -> Unit) : SensorEventListener {
     private val manager = context.getSystemService(SensorManager::class.java)
     private val sensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        ?: manager.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     val available: Boolean get() = sensor != null
+    val usesTilt: Boolean get() = sensor?.type in setOf(Sensor.TYPE_GRAVITY, Sensor.TYPE_ACCELEROMETER)
     private val mapper = AirPointerMapper()
     private val handler = Handler(Looper.getMainLooper())
     private var active = false
@@ -53,7 +55,9 @@ internal class AirPointerController(context: Context, private val move: (Double,
         if (!active) return
         val age = SystemClock.elapsedRealtimeNanos() - event.timestamp
         if (age !in 0..250_000_000L) return
-        val point = mapper.update(event.values, sensitivity, rotation) ?: return
+        val time = event.timestamp / 1_000_000.0
+        val point = (if (usesTilt) mapper.updateGravity(event.values, sensitivity, rotation, time)
+            else mapper.update(event.values, sensitivity, rotation, time)) ?: return
         lastSample = SystemClock.elapsedRealtime()
         move(point.x, point.y)
     }

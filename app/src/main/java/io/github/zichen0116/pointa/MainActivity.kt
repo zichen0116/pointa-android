@@ -3,7 +3,7 @@ package io.github.zichen0116.pointa
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.HapticFeedbackConstants
+import android.widget.Toast
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -16,12 +16,18 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import io.github.zichen0116.pointa.ui.PointaApp
 import io.github.zichen0116.pointa.ui.UiActions
 
 class MainActivity : ComponentActivity() {
     private val model: PointaViewModel by viewModels()
     private val consumedVolumeKeys = mutableSetOf<Int>()
+    private val pageHaptics by lazy { PageHaptics(this) }
+    private var noticeToast: Toast? = null
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) model.setScanning(true) else model.localError("camera_denied")
     }
@@ -29,6 +35,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                model.notices.collect { message ->
+                    noticeToast?.cancel()
+                    noticeToast = Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).also { it.show() }
+                }
+            }
+        }
         setContent {
             val state by model.ui.collectAsStateWithLifecycle()
             val preferences by model.preferences.collectAsStateWithLifecycle()
@@ -68,7 +82,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun page(next: Boolean) {
-        if (model.page(next) && model.preferences.value.haptics) window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        if (model.page(next)) pageHaptics.click()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -86,6 +100,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() { super.onStart(); model.setForeground(true) }
     override fun onPause() { model.hide(); super.onPause() }
     override fun onStop() {
+        noticeToast?.cancel()
         consumedVolumeKeys.clear()
         if (!isChangingConfigurations) model.setForeground(false)
         super.onStop()

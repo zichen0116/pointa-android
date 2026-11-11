@@ -43,6 +43,10 @@ class DeviceStoreTest {
         try {
             store.save(p)
             assertEquals(p, store.load())
+            val legacy = org.json.JSONObject(raw.getString("v1", null)!!).put("haptics", false).put("laserColor", "#FFFFFF").put("theme", 2)
+            raw.edit().putString("v1", legacy.toString()).commit()
+            assertEquals("#32B894", store.load().laserColor)
+            assertEquals(p.leftMargins, store.load().leftMargins)
             raw.edit().putString("v1", "broken").commit()
             assertThrows(Exception::class.java) { store.load() }
             assertEquals("broken", raw.getString("v1", ""))

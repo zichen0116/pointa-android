@@ -17,6 +17,9 @@ import io.github.zichen0116.pointa.ui.UiState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,6 +32,8 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     val preferences = mutablePreferences.asStateFlow()
     private val mutableUi = MutableStateFlow(UiState())
     val ui = mutableUi.asStateFlow()
+    private val actionNotices = MutableSharedFlow<String>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val notices = actionNotices.asSharedFlow()
     private val client = PointaClient((Build.MANUFACTURER + " " + Build.MODEL).take(64), this)
     private val air = AirPointerController(application,
         move = { x, y -> if (canControl() && preferences.value.mode == "air") client.move(x, y) },
@@ -58,7 +63,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     init {
-        mutableUi.value = mutableUi.value.copy(airAvailable = air.available)
+        mutableUi.value = mutableUi.value.copy(airAvailable = air.available, airUsesTilt = air.usesTilt)
         viewModelScope.launch {
             try { mutablePreferences.value = withContext(Dispatchers.IO) { preferenceStore.load() } }
             catch (_: Exception) { preferenceHealthy = false; localError("preferences_corrupt") }
@@ -182,6 +187,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     fun changePreferences(next: Preferences) {
         if (!preferenceHealthy) { localError("preferences_corrupt"); return }
         val old = mutablePreferences.value
+        if (old == next) return
         if (old.mode != next.mode) air.stop()
         mutablePreferences.value = next
         preferenceSave?.cancel()
@@ -198,7 +204,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
         }
     }
 
-    private fun effect(p: Preferences) = LaserEffect(p.laserColor, when (p.laserSize) { "small" -> 10; "large" -> 24; else -> 16 },
+    private fun effect(p: Preferences) = LaserEffect(p.laserColor, when (p.laserSize) { "small" -> 8; "large" -> 20; else -> 12 },
         if (p.trailEnabled) p.trailMs else 0, p.smoothing)
 
     override fun onPaired(computer: KnownComputer) = post {
@@ -221,6 +227,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
                 retry?.cancel(); retryCount = 0
                 mutableUi.value = mutableUi.value.copy(connected = true, connecting = false, deviceName = state.name, connectedDeviceId = selectedId,
                     statusText = t("已连接", "Connected"), statusError = null)
+                client.updateEffect(effect(preferences.value))
                 val computer = currentComputer?.takeIf { it.serverId == selectedId }
                 if (computer != null) try {
                     devices = withContext(Dispatchers.IO) { trust.touch(computer.copy(name = state.name, lastConnectedAt = System.currentTimeMillis())) }; updateDevices()
@@ -241,13 +248,12 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     override fun onActionResult(id: String, success: Boolean, error: String?) = post {
-        if (!success) localError(error ?: "action_failed")
-        else mutableUi.value = mutableUi.value.copy(statusError = null)
+        if (!success && foreground) actionNotices.tryEmit(errorText(error ?: "action_failed"))
     }
 
     override fun onEffect(effect: LaserEffect) = post {
         val p = preferences.value
-        val next = p.copy(laserColor = effect.color, laserSize = when { effect.size <= 12 -> "small"; effect.size >= 22 -> "large"; else -> "medium" },
+        val next = p.copy(laserSize = when { effect.size <= 8 -> "small"; effect.size >= 18 -> "large"; else -> "medium" },
             trailEnabled = effect.trailMs > 0, trailMs = if (effect.trailMs > 0) effect.trailMs.coerceIn(100, 1200) else p.trailMs, smoothing = effect.smoothing)
         mutablePreferences.value = next
         preferenceSave?.cancel()
@@ -308,7 +314,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
         code == "controller_busy" -> t("电脑正由另一台手机控制，请先在电脑端断开它。", "Another phone is controlling this computer. Disconnect it on Windows first.")
         code.contains("storage") -> t("设备记录无法安全读取或保存，原记录已保留。请检查存储；密钥损坏时在系统清除应用数据后重新配对。", "Trusted devices cannot be read or saved securely. Records were preserved. Check storage; reset app data and pair again if the key is lost.")
         code.contains("preferences") -> t("设置无法读取或保存，原文件已保留。请检查存储或清除应用数据后重试。", "Settings could not be read or saved. The original was preserved. Check storage or reset app data.")
-        code.contains("focus") || code.contains("target") || code == "no_foreground_window" || code == "input_blocked" -> t("翻页未执行：请将演示置前台；浏览器/PDF 需在电脑托盘菜单中授权窗口。", "Slide change was blocked. Focus your presentation; allow browser/PDF windows from the Windows tray.")
+        code.contains("focus") || code.contains("target") || code == "no_foreground_window" || code == "input_blocked" -> t("翻页未执行，请前置或授权演示窗口。", "Slide blocked. Focus or allow the presentation window.")
         code.contains("cooldown") || code == "keyboard_busy" -> t("操作过快或电脑按键正被占用，请稍后再试。", "Please slow down or release the computer's keys.")
         code == "camera_denied" -> t("未获得相机权限，仍可用设备码连接。", "Camera access was denied. You can still connect with a pairing code.")
         code == "camera_failed" -> t("相机暂不可用，请重试或使用设备码。", "Camera unavailable. Retry or use a pairing code.")

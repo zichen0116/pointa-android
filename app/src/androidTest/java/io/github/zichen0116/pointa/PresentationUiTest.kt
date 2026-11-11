@@ -25,19 +25,27 @@ class PresentationUiTest {
     private var hides = 0
     private fun actions() = UiActions({}, {}, { _, _ -> }, {}, {}, {}, { _, _ -> moves++ }, { hides++ }, { pages++ }, {})
 
-    @Test fun controlsHideOnReleaseAndEditCancelPreservesBothHands() {
+    @Test fun controlsHideOnReleaseAndEditingStaysInPlaceAndAutosaves() {
         var prefs by mutableStateOf(Preferences(language = "en", onboardingDone = true))
         compose.setContent { PointaApp(UiState(connected = true, deviceName = "Test computer"), prefs, { prefs = it }, actions()) }
         compose.onNodeWithText("Next").performClick()
         assertEquals(1, pages)
         compose.onNodeWithContentDescription("Hold to point").performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(40f, 20f)); up() }
         compose.runOnIdle { assertTrue(moves > 0); assertTrue(hides > 0) }
+        val workspace = compose.onNodeWithTag("control-workspace").getUnclippedBoundsInRoot()
         compose.onNodeWithContentDescription("Edit touch area").performClick()
-        compose.onNodeWithContentDescription("Margin values").performClick()
-        compose.onNodeWithContentDescription("Left margin").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.2f) }
-        compose.onNodeWithText("Done").performClick()
-        compose.onNodeWithText("Cancel").assertIsDisplayed().performClick()
+        assertEquals(workspace, compose.onNodeWithTag("control-workspace").getUnclippedBoundsInRoot())
+        compose.onNodeWithContentDescription("Margin values").assertDoesNotExist()
+        compose.onNodeWithText("Save").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Adjust left edge").performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(60f,0f)); up() }
+        compose.runOnIdle { assertTrue(prefs.rightMargins.left > 0); assertEquals(Margins(), prefs.leftMargins) }
+        compose.onNodeWithContentDescription("Finish editing").performClick()
+        compose.runOnIdle { assertTrue(prefs.rightMargins.left > 0) }
+        assertEquals(workspace, compose.onNodeWithTag("control-workspace").getUnclippedBoundsInRoot())
+        compose.onNodeWithContentDescription("Edit touch area").performClick()
+        compose.onNodeWithText("Reset").performClick()
         compose.runOnIdle { assertEquals(Margins(), prefs.rightMargins); assertEquals(Margins(), prefs.leftMargins) }
+        compose.onNodeWithContentDescription("Finish editing").performClick()
     }
 
     @Test fun disconnectedControlsNeverSendActionsAndEnglishSettingsAreReachable() {
