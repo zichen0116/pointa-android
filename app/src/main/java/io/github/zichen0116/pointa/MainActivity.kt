@@ -68,9 +68,11 @@ class MainActivity : ComponentActivity() {
             }
             PointaApp(state, preferences, model::changePreferences, actions)
             if (state.scanning) CameraScanner(
-                title = model.t("扫描电脑上的映点二维码", "Scan the Pointa QR on your computer"),
-                hint = model.t("无需互联网。请让二维码完整出现在画面内。", "Works offline. Keep the entire QR in view."),
-                cancel = model.t("取消", "Cancel"), onResult = model::connectQr,
+                hint = model.t("对准二维码自动识别", "Align the QR code to scan"),
+                recognizedHint = model.t("已识别，正在连接…", "Recognized. Connecting…"),
+                cancel = model.t("关闭扫码", "Close scanner"), flashLabel = model.t("手电筒", "Flashlight"),
+                reduceMotion = preferences.reduceMotion, onResult = model::connectQr,
+                onInvalid = { model.localError("invalid_qr") },
                 onClose = { model.setScanning(false) }, onError = { model.setScanning(false); model.localError("camera_failed") })
         }
     }

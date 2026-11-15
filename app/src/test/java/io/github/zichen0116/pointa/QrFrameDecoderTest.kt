@@ -19,7 +19,10 @@ class QrFrameDecoderTest {
                 data.put(prefix + (y + 10) * stride + (x + 10) * 2, if (matrix[sx, sy]) 0 else 255.toByte())
             }
             data.position(prefix)
-            assertEquals(value, decodeQrFrame(data, width, height, stride, 2, 10, 10, 400, 400))
+            val result = decodeQrFrame(data, width, height, stride, 2, 10, 10, 400, 400)!!
+            assertEquals(value, result.text)
+            assertEquals(4, result.corners.size)
+            assertTrue(result.corners.all { it.x in 0f..420f && it.y in 0f..420f })
             assertEquals(prefix, data.position())
         }
     }
