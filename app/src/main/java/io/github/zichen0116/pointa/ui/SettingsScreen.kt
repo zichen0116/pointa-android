@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -35,74 +36,68 @@ internal fun SettingsScreen(p: Preferences, update: (Preferences) -> Unit, onBac
     var reset by remember { mutableStateOf(false) }
     var mappingConflict by remember { mutableStateOf(false) }
     val links = LocalUriHandler.current
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().testTag("settings-page").padding(horizontal = 16.dp)) {
         PageHeader(s.t("个性化设置", "Settings"), onBack)
-        CardGroup {
-            SectionTitle(s.t("主题颜色", "Theme color"))
-            val names = listOf(s.t("黑色 · 默认", "Night · Default"), s.t("珊瑚红", "Coral"), s.t("薄荷绿", "Mint"), s.t("天空蓝", "Sky"), s.t("暖金色", "Gold"), s.t("淡紫色", "Lilac"))
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                ThemeColors.forEachIndexed { index, color -> ColorSwatch(color, p.theme == index, names[index]) { update(p.copy(theme = index)) } }
+        Column(Modifier.weight(1f).fillMaxWidth().testTag("settings-scroll").verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            CardGroup {
+                SectionTitle(s.t("主题颜色", "Theme color"))
+                val names = listOf(s.t("黑色 · 默认", "Night · Default"), s.t("珊瑚红", "Coral"), s.t("薄荷绿", "Mint"), s.t("天空蓝", "Sky"), s.t("暖金色", "Gold"), s.t("淡紫色", "Lilac"))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ThemeColors.forEachIndexed { index, color -> ColorSwatch(color, p.theme == index, names[index]) { update(p.copy(theme = index)) } }
+                }
+                Choice(s.t("外观", "Appearance"), p.appearance,
+                    listOf("dark" to s.t("深色", "Dark"), "light" to s.t("浅色", "Light"), "system" to s.t("跟随系统", "System"))) { update(p.copy(appearance = it)) }
+                Choice(s.t("语言", "Language"), p.language,
+                    listOf("system" to s.t("跟随系统", "System"), "zh" to "简体中文", "en" to "English")) { update(p.copy(language = it)) }
+                Toggle(s.t("减少动画", "Reduce motion"), p.reduceMotion, { update(p.copy(reduceMotion = it)) })
             }
-            Text(s.t("主题与激光颜色同步", "The laser follows your theme color"),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Choice(s.t("外观", "Appearance"), p.appearance,
-                listOf("dark" to s.t("深色", "Dark"), "light" to s.t("浅色", "Light"), "system" to s.t("跟随系统", "System"))) { update(p.copy(appearance = it)) }
-            Choice(s.t("语言", "Language"), p.language,
-                listOf("system" to s.t("跟随系统", "System"), "zh" to "简体中文", "en" to "English")) { update(p.copy(language = it)) }
-            Toggle(s.t("减少动画", "Reduce motion"), p.reduceMotion, { update(p.copy(reduceMotion = it)) },
-                s.t("减少非必要的界面动画，不影响激光效果", "Reduce decorative interface animation; laser effects are separate"))
-        }
-        CardGroup {
-            SectionTitle(s.t("激光效果", "Laser effects"))
-            Choice(s.t("指针大小", "Pointer size"), p.laserSize,
-                listOf("small" to s.t("小", "Small"), "medium" to s.t("中", "Medium"), "large" to s.t("大", "Large"))) { update(p.copy(laserSize = it)) }
-            Choice(s.t("平滑级别", "Smoothing"), p.smoothing,
-                listOf("low" to s.t("低", "Low"), "standard" to s.t("标准", "Standard"), "high" to s.t("高", "High"))) { update(p.copy(smoothing = it)) }
-            Toggle(s.t("渐隐拖尾", "Fading trail"), p.trailEnabled, { update(p.copy(trailEnabled = it)) })
-            SettingSlider(s.t("拖尾时间", "Trail duration"), p.trailMs, 100, 1200, 50, "ms", p.trailEnabled) { update(p.copy(trailMs = it)) }
-            Text(s.t("连接时实时应用到电脑；拖尾关闭后仍保留时长。", "Applied to the computer while connected. The duration is kept when trails are off."),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        CardGroup {
-            SectionTitle(s.t("触控与布局", "Touch and layout"))
-            SettingSlider(s.t("控制灵敏度", "Sensitivity"), p.sensitivity, 10, 100, 5, "%") { update(p.copy(sensitivity = it)) }
-            Text(s.t("用于相对触控与空中指针；60% 为标准速度。", "Used for relative touch and air pointing. 60% is the standard speed."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Choice(s.t("惯用手", "Preferred hand"), if (p.leftHand) "left" else "right",
-                listOf("left" to s.t("左手", "Left"), "right" to s.t("右手", "Right"))) { update(p.copy(leftHand = it == "left")) }
-            Choice(s.t("全屏映射", "Full-screen mapping"), if (p.fullRelative) "relative" else "absolute",
-                listOf("absolute" to s.t("绝对坐标", "Absolute"), "relative" to s.t("相对位移", "Relative"))) { update(p.copy(fullRelative = it == "relative")) }
-            Text(s.t("点击单手模式的铅笔，直接拖动触控区边缘，自动保存。", "Tap the pencil in one-hand mode and drag an edge. Changes save automatically."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        CardGroup {
-            Toggle(s.t("音量键翻页", "Volume-key paging"), p.volumeEnabled, { update(p.copy(volumeEnabled = it)) })
-            val keys = listOf("0" to s.t("无", "None"), "+" to s.t("音量 +", "Volume +"), "-" to s.t("音量 −", "Volume −"))
-            Choice(s.t("上一页", "Previous slide"), p.prevVolume, keys, p.volumeEnabled) { key ->
-                mappingConflict = key != "0" && key == p.nextVolume
-                update(p.withVolumeMapping(previous = true, key = key))
+            CardGroup {
+                SectionTitle(s.t("激光效果", "Laser effects"))
+                Choice(s.t("指针大小", "Pointer size"), p.laserSize,
+                    listOf("small" to s.t("小", "Small"), "medium" to s.t("中", "Medium"), "large" to s.t("大", "Large"))) { update(p.copy(laserSize = it)) }
+                Choice(s.t("平滑级别", "Smoothing"), p.smoothing,
+                    listOf("low" to s.t("低", "Low"), "standard" to s.t("标准", "Standard"), "high" to s.t("高", "High"))) { update(p.copy(smoothing = it)) }
+                Toggle(s.t("渐隐拖尾", "Fading trail"), p.trailEnabled, { update(p.copy(trailEnabled = it)) })
+                SettingSlider(s.t("拖尾时间", "Trail duration"), p.trailMs, 100, 1200, 50, "ms", p.trailEnabled) { update(p.copy(trailMs = it)) }
             }
-            Choice(s.t("下一页", "Next slide"), p.nextVolume, keys, p.volumeEnabled) { key ->
-                mappingConflict = key != "0" && key == p.prevVolume
-                update(p.withVolumeMapping(previous = false, key = key))
+            CardGroup {
+                SectionTitle(s.t("触控与布局", "Touch and layout"))
+                SettingSlider(s.t("控制灵敏度", "Sensitivity"), p.sensitivity, 10, 100, 5, "%") { update(p.copy(sensitivity = it)) }
+                Choice(s.t("惯用手", "Preferred hand"), if (p.leftHand) "left" else "right",
+                    listOf("left" to s.t("左手", "Left"), "right" to s.t("右手", "Right"))) { update(p.copy(leftHand = it == "left")) }
+                Choice(s.t("全屏映射", "Full-screen mapping"), if (p.fullRelative) "relative" else "absolute",
+                    listOf("absolute" to s.t("绝对坐标", "Absolute"), "relative" to s.t("相对位移", "Relative"))) { update(p.copy(fullRelative = it == "relative")) }
             }
-            if (mappingConflict) Text(s.t("同一按键不能绑定两个动作，已解除另一项映射。", "A key can only control one action. Its other mapping was cleared."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            Text(s.t("仅在 App 前台的演示页面生效；长按不会连续翻页。", "Works only on the presentation screen while the app is in the foreground. Holding a key does not repeat."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        CardGroup {
-            SectionTitle(s.t("演示偏好", "Presentation preferences"))
-            Toggle(s.t("保持屏幕常亮", "Keep screen awake"), p.keepScreenOn, { update(p.copy(keepScreenOn = it)) }, s.t("仅在已连接的演示页面生效", "Only during a connected presentation"))
-            Toggle(s.t("自动重连", "Auto-reconnect"), p.autoReconnect, { update(p.copy(autoReconnect = it)) }, s.t("前台启动时连接最近信任的电脑", "Reconnect to the last trusted computer on foreground launch"))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .35f))
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onDevices), verticalAlignment = Alignment.CenterVertically) {
-                Text(s.t("设备与信任管理", "Computers and trust"), Modifier.weight(1f))
-                Icon(Icons.Default.ChevronRight, null)
+            CardGroup {
+                Toggle(s.t("音量键翻页", "Volume-key paging"), p.volumeEnabled, { update(p.copy(volumeEnabled = it)) })
+                val keys = listOf("0" to s.t("无", "None"), "+" to s.t("音量 +", "Volume +"), "-" to s.t("音量 −", "Volume −"))
+                Choice(s.t("上一页", "Previous slide"), p.prevVolume, keys, p.volumeEnabled) { key ->
+                    mappingConflict = key != "0" && key == p.nextVolume
+                    update(p.withVolumeMapping(previous = true, key = key))
+                }
+                Choice(s.t("下一页", "Next slide"), p.nextVolume, keys, p.volumeEnabled) { key ->
+                    mappingConflict = key != "0" && key == p.prevVolume
+                    update(p.withVolumeMapping(previous = false, key = key))
+                }
+                if (mappingConflict) Text(s.t("同一按键不能绑定两个动作，已解除另一项映射。", "A key can only control one action. Its other mapping was cleared."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
-            OutlinedButton(onClick = { reset = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("恢复默认设置", "Reset preferences")) }
+            CardGroup {
+                SectionTitle(s.t("演示偏好", "Presentation preferences"))
+                Toggle(s.t("保持屏幕常亮", "Keep screen awake"), p.keepScreenOn, { update(p.copy(keepScreenOn = it)) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .35f))
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onDevices), verticalAlignment = Alignment.CenterVertically) {
+                    Text(s.t("设备与信任管理", "Computers and trust"), Modifier.weight(1f))
+                    Icon(Icons.Default.ChevronRight, null)
+                }
+                OutlinedButton(onClick = { reset = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(s.t("恢复默认设置", "Reset preferences")) }
+            }
+            CardGroup {
+                Text(s.t("欢迎提交 PR 和 issue", "PRs and issues are welcome"))
+                TextButton(onClick = { links.openUri("https://github.com/zichen0116/pointa-android") }) { Text("GitHub · Pointa") }
+            }
+            Spacer(Modifier.height(8.dp))
         }
-        CardGroup {
-            Text(s.t("欢迎提交 PR 和 issue", "PRs and issues are welcome"))
-            TextButton(onClick = { links.openUri("https://github.com/zichen0116/pointa-android") }) { Text("GitHub · Pointa") }
-        }
-        Spacer(Modifier.height(8.dp))
     }
     if (reset) AlertDialog(onDismissRequest = { reset = false }, title = { Text(s.t("恢复默认设置？", "Reset preferences?")) },
         text = { Text(s.t("主题、激光、按键与左右手布局将恢复默认。已配对电脑会保留。", "Theme, laser, keys and both hand layouts will reset. Paired computers will be kept.")) },
@@ -125,13 +120,10 @@ private fun ColorSwatch(color: Color, chosen: Boolean, label: String, onClick: (
 }
 
 @Composable
-private fun Toggle(label: String, value: Boolean, change: (Boolean) -> Unit, help: String? = null) {
+private fun Toggle(label: String, value: Boolean, change: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = value, role = Role.Switch, onValueChange = change),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label)
-            if (help != null) Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text(label, Modifier.weight(1f))
         Switch(checked = value, onCheckedChange = null)
     }
 }

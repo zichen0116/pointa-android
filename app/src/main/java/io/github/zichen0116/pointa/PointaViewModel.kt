@@ -2,8 +2,6 @@ package io.github.zichen0116.pointa
 
 import android.app.Application
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
@@ -34,7 +32,9 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     val ui = mutableUi.asStateFlow()
     private val actionNotices = MutableSharedFlow<String>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val notices = actionNotices.asSharedFlow()
-    private val client = PointaClient((Build.MANUFACTURER + " " + Build.MODEL).take(64), this)
+    private val client = PointaClient((Build.MANUFACTURER + " " + Build.MODEL).take(64), this) {
+        if (BuildConfig.DEBUG) android.util.Log.d("PointaConnection", it)
+    }
     private val air = AirPointerController(application,
         move = { x, y -> if (canControl() && preferences.value.mode == "air") client.move(x, y) },
         hide = client::hide, changed = { mutableUi.value = mutableUi.value.copy(airActive = it) },
@@ -44,23 +44,19 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     private var currentComputer: KnownComputer? = null
     private var discoveredComputers = emptyList<DiscoveredComputer>()
     private var foreground = false
-    private var wantsConnection = true
+    private var wantsConnection = false
     private var controlActive = false
     private var initialized = false
     internal val ready: Boolean get() = initialized
     private var storageHealthy = true
     private var preferenceHealthy = true
     private var disposed = false
-    private var retry: Job? = null
-    private var retryCount = 0
+    private var connectionRequest: Job? = null
     private var stateRevision = 0L
     private var persistPairing: Job? = null
     private var preferenceSave: Job? = null
     private var effectUpdate: Job? = null
-    private val connectivity = application.getSystemService(ConnectivityManager::class.java)
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = post { if (initialized) resumeIfNeeded() }
-    }
+    private var lastConnectionError: String? = null
 
     init {
         mutableUi.value = mutableUi.value.copy(airAvailable = air.available, airUsesTilt = air.usesTilt)
@@ -70,9 +66,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
             try { devices = withContext(Dispatchers.IO) { trust.load() }; updateDevices() }
             catch (_: Exception) { storageHealthy = false; localError("storage_corrupt") }
             initialized = true
-            resumeIfNeeded()
         }
-        connectivity.registerDefaultNetworkCallback(networkCallback)
     }
 
     fun t(chinese: String, english: String): String {
@@ -82,8 +76,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
 
     fun setForeground(active: Boolean) {
         foreground = active
-        if (active) resumeIfNeeded()
-        else { retry?.cancel(); hide(); client.disconnect(); mutableUi.value = mutableUi.value.copy(connected = false, connecting = false) }
+        if (!active) { wantsConnection = false; connectionRequest?.cancel(); hide(); client.disconnect(); mutableUi.value = mutableUi.value.copy(connected = false, connecting = false, scanning = false) }
     }
 
     fun setControlActive(active: Boolean) { controlActive = active; if (!active) hide() }
@@ -99,18 +92,22 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun connectQr(raw: String) {
+        if (!initialized || !foreground || ui.value.connecting) return
         if (!storageHealthy) { localError("storage_corrupt"); return }
         try {
             val invitation = QrInvitation.parse(raw)
-            retry?.cancel(); retryCount = 0; selectedId = null; wantsConnection = true
+            lastConnectionError = null
+            connectionRequest?.cancel(); selectedId = null; wantsConnection = true
             mutableUi.value = mutableUi.value.copy(scanning = false, statusError = null)
             client.connectQr(invitation)
         } catch (_: IllegalArgumentException) { setScanning(false); localError("invalid_qr") }
     }
 
     fun pairCode(host: String, code: String) {
+        if (!initialized || !foreground || ui.value.connecting) return
+        lastConnectionError = null
         if (!storageHealthy) { localError("storage_corrupt"); return }
-        retry?.cancel(); retryCount = 0; selectedId = null; wantsConnection = true
+        connectionRequest?.cancel(); selectedId = null; wantsConnection = true
         mutableUi.value = mutableUi.value.copy(statusError = null)
         try {
             val discovered = discoveredComputers.firstOrNull { it.host == host.trim() }
@@ -120,15 +117,25 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun reconnect(id: String) {
+        if (!initialized || !storageHealthy || !foreground || ui.value.connecting) return
         val device = devices.firstOrNull { it.serverId == id } ?: return
-        retry?.cancel(); retryCount = 0; selectedId = id; wantsConnection = true
-        currentComputer = device
-        mutableUi.value = mutableUi.value.copy(statusError = null)
-        client.reconnect(device)
+        lastConnectionError = null
+        connectionRequest?.cancel(); selectedId = id; wantsConnection = true
+        mutableUi.value = mutableUi.value.copy(connecting = true, statusError = null,
+            statusText = t("正在查找电脑…", "Finding your computer…"))
+        connectionRequest = viewModelScope.launch {
+            val found = try { withContext(Dispatchers.IO) { discoverLan().firstOrNull { it.serverId == id } } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { null }
+            if (!foreground || !wantsConnection || selectedId != id) return@launch
+            val current = if (found == null) device else device.copy(host = found.host, port = found.port)
+            currentComputer = current
+            client.reconnect(current)
+        }
     }
 
     fun disconnect() {
-        wantsConnection = false; retry?.cancel(); hide(); client.disconnect()
+        wantsConnection = false; connectionRequest?.cancel(); hide(); client.disconnect()
         mutableUi.value = mutableUi.value.copy(connected = false, connecting = false)
     }
 
@@ -155,8 +162,8 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
             try {
                 val found = withContext(Dispatchers.IO) { discoverLan() }
                 discoveredComputers = found
-                mutableUi.value = mutableUi.value.copy(discoveredDevices = found.map { Device(it.serverId, it.name, it.host) },
-                    statusError = if (found.isEmpty()) t("未发现电脑，可手动输入局域网 IP。", "No computer found. Enter its local IP address.") else null)
+                mutableUi.value = mutableUi.value.copy(discoveredDevices = found.map { Device(it.serverId, it.name, it.host) })
+                if (found.isEmpty()) localMessage(t("未发现电脑，可手动输入电脑 IP。", "No computer found. Enter its IP address."))
             } catch (_: Exception) { localError("discovery_failed") }
             finally { mutableUi.value = mutableUi.value.copy(discovering = false) }
         }
@@ -171,7 +178,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     fun forget(id: String) {
         if (selectedId == id) {
             air.stop()
-            wantsConnection = false; retry?.cancel()
+            wantsConnection = false; connectionRequest?.cancel()
             if (ui.value.connected) client.forget() else client.disconnect()
             selectedId = null
             mutableUi.value = mutableUi.value.copy(connected = false, connecting = false)
@@ -197,7 +204,6 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { localError("preferences_failed") }
         }
-        if (!next.autoReconnect) retry?.cancel()
         if (effect(old) != effect(next) && ui.value.connected) {
             effectUpdate?.cancel()
             effectUpdate = viewModelScope.launch { delay(300); if (ui.value.connected) client.updateEffect(effect(preferences.value)) }
@@ -215,16 +221,16 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     override fun onState(state: ConnectionState) = post {
+        if (BuildConfig.DEBUG) android.util.Log.d("PointaConnection", "State: ${state.phase}, error: ${state.error}")
         val revision = ++stateRevision
         if (state.phase != ConnectionPhase.CONNECTED) air.stop()
         if (!storageHealthy) { mutableUi.value = mutableUi.value.copy(connected = false, connecting = false); return@post }
-        if (state.phase in setOf(ConnectionPhase.CONNECTING, ConnectionPhase.PAIRING, ConnectionPhase.WAITING_APPROVAL)) retry?.cancel()
         if (state.phase == ConnectionPhase.CONNECTED) {
+            lastConnectionError = null
             viewModelScope.launch {
                 persistPairing?.join()
                 if (revision != stateRevision) return@launch
                 if (!storageHealthy || !foreground || !wantsConnection) { client.disconnect(); return@launch }
-                retry?.cancel(); retryCount = 0
                 mutableUi.value = mutableUi.value.copy(connected = true, connecting = false, deviceName = state.name, connectedDeviceId = selectedId,
                     statusText = t("已连接", "Connected"), statusError = null)
                 client.updateEffect(effect(preferences.value))
@@ -242,8 +248,8 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
                     ConnectionPhase.PAIRING -> t("正在安全配对…", "Securing connection…")
                     ConnectionPhase.WAITING_APPROVAL -> t("请在电脑上允许配对", "Allow pairing on your computer")
                     else -> t("未连接", "Disconnected")
-                }, statusError = state.error?.let(::errorText))
-            if (state.phase in setOf(ConnectionPhase.FAILED, ConnectionPhase.DISCONNECTED)) scheduleRetry(state.error)
+                }, statusError = null)
+            state.error?.let { if (it != lastConnectionError) localError(it); lastConnectionError = it }
         }
     }
 
@@ -269,34 +275,6 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
     override fun onEffectRejected(error: String) = post { localError(error) }
 
-    private fun resumeIfNeeded() {
-        if (!initialized || !storageHealthy || !foreground || !wantsConnection || !preferences.value.autoReconnect || ui.value.connected || ui.value.connecting || retry?.isActive == true) return
-        val computer = devices.firstOrNull { it.serverId == selectedId } ?: devices.firstOrNull() ?: return
-        selectedId = computer.serverId
-        currentComputer = computer
-        client.reconnect(computer)
-    }
-
-    private fun scheduleRetry(error: String?) {
-        val recoverable = error == null || error in setOf("network_error", "network_closed", "network_timeout", "network_slow")
-        if (!recoverable) { wantsConnection = false; return }
-        if (!foreground || !wantsConnection || !preferences.value.autoReconnect || selectedId == null || retry?.isActive == true) return
-        retry = viewModelScope.launch {
-            delay((1L shl retryCount.coerceAtMost(4)).coerceAtMost(15) * 1000)
-            if (ui.value.connected || ui.value.connecting) return@launch
-            retryCount++
-            val computer = devices.firstOrNull { it.serverId == selectedId } ?: return@launch
-            val discovered = try { withContext(Dispatchers.IO) { discoverLan().firstOrNull { it.serverId == computer.serverId } } }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { null }
-            if (foreground && wantsConnection && preferences.value.autoReconnect && selectedId == computer.serverId && !ui.value.connected && !ui.value.connecting) {
-                val updated = if (discovered != null) computer.copy(host = discovered.host, port = discovered.port) else computer
-                currentComputer = updated
-                client.reconnect(updated)
-            }
-        }
-    }
-
     private fun updateDevices() {
         mutableUi.value = mutableUi.value.copy(recentDevices = devices.map {
             Device(it.serverId, it.name, it.host, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it.lastConnectedAt)))
@@ -304,10 +282,17 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun localError(code: String) = localMessage(errorText(code))
-    private fun localMessage(message: String) { mutableUi.value = mutableUi.value.copy(statusError = message) }
+    private fun localMessage(message: String) { if (foreground) actionNotices.tryEmit(message) }
     private fun errorText(code: String): String = when {
+        code == "network_unreachable" -> t("无法到达电脑，请核对 IP；可尝试手机热点。", "Computer unreachable. Check its IP or try a phone hotspot.")
+        code == "connection_refused" -> t("电脑未接受连接，请打开 Pointa 并核对 IP。", "Connection refused. Open Pointa on the computer and check its IP.")
+        code == "connect_timeout" -> t("连接电脑超时，请检查网络互访和防火墙。", "Connection timed out. Check local network access and the firewall.")
         code == "sensor_unavailable" -> t("无法读取旋转传感器。请检查传感器开关，或使用触控模式。", "Rotation sensor unavailable. Check sensor access or use touch mode.")
         code in setOf("invalid_qr", "invalid_pairing_input") -> t("配对信息无效，请扫描映点二维码或输入局域网 IP 和六位码。", "Invalid pairing details. Use a Pointa QR or local IP and six-digit code.")
+        code == "authentication_timeout" -> t("配对超时，请重试，并在电脑上点击允许。", "Pairing timed out. Retry and approve on your computer.")
+        code == "pairing_expired" -> t("二维码或设备码已过期，请使用电脑上新显示的内容。", "Pairing expired. Use the new QR or code shown on the computer.")
+        code == "invalid_proof" -> t("设备码不匹配，请核对电脑上的最新六位码。", "Code mismatch. Check the current six-digit code on the computer.")
+        code == "pairing_denied" -> t("电脑未允许配对，请重试并点击允许。", "Pairing was not approved on the computer. Retry and allow it.")
         code.contains("certificate") || code.contains("identity") || code.contains("pin") -> t("电脑身份验证失败，请在电脑上刷新二维码并重新配对。", "Computer identity could not be verified. Pair again with its new QR code.")
         code in setOf("pairing_expired", "invalid_proof", "invalid_pairing", "pairing_denied", "code_rate_limited") -> t("配对未通过。请刷新电脑端设备码，核对后重新连接并允许配对。", "Pairing failed. Refresh the computer's code and approve a new pairing.")
         code in setOf("invalid_credential", "credential_revoked") -> t("电脑已撤销授权，请重新配对。", "Access was revoked. Pair with the computer again.")
@@ -325,7 +310,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
     override fun onCleared() {
         disposed = true
         air.stop()
-        connectivity.unregisterNetworkCallback(networkCallback)
+        connectionRequest?.cancel()
         client.close()
         super.onCleared()
     }

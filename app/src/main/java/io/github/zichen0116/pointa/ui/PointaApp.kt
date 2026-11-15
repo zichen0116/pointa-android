@@ -10,8 +10,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -21,21 +19,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import kotlin.math.roundToInt
@@ -81,23 +75,25 @@ fun PointaApp(state: UiState, preferences: Preferences, onPreferencesChange: (Pr
             DisposableEffect(Unit) { onDispose { currentActions.hide(); currentActions.onControlActive(false) } }
             LaunchedEffect(state.connected) { if (state.connected) panel = null }
             BackHandler(panel != null || editing || locked) {
-                when { panel != null -> panel = null; editing -> editing = false; locked -> locked = false }
+                when { panel == "code" -> panel = "devices"; panel != null -> panel = null; editing -> editing = false; locked -> locked = false }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = scheme.background) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     if (!preferences.onboardingDone) Onboarding { onPreferencesChange(preferences.copy(onboardingDone = true)) }
-                    else ControlScreen(state, preferences, onPreferencesChange, actions, pointer,
-                        locked, { locked = it }, editing, { editing = it },
-                        onDevices = { panel = "devices" }, onSettings = { panel = "settings" })
+                    else when (panel) {
+                        "settings" -> SettingsScreen(preferences, onPreferencesChange, onBack = { panel = null }, onDevices = { panel = "devices" })
+                        "code" -> PairingCodeScreen(state, actions, onBack = { panel = "devices" })
+                        else -> ControlScreen(state, preferences, onPreferencesChange, actions, pointer,
+                            locked, { locked = it }, editing, { editing = it },
+                            onDevices = { panel = "devices" }, onSettings = { panel = "settings" })
+                    }
                 }
             }
-            if (preferences.onboardingDone && panel != null) {
+            if (preferences.onboardingDone && panel == "devices") {
                 ModalBottomSheet(onDismissRequest = { panel = null },
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = scheme.background) {
-                    Box(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-                        if (panel == "devices") DeviceScreen(state, actions, onBack = { panel = null }, onSettings = { panel = "settings" })
-                        else SettingsScreen(preferences, onPreferencesChange, onBack = { panel = null }, onDevices = { panel = "devices" })
-                    }
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = scheme.background,
+                    dragHandle = { BottomSheetDefaults.DragHandle(Modifier.testTag("device-sheet-handle")) }) {
+                    DeviceScreen(state, actions, onBack = { panel = null }, onCode = { panel = "code"; actions.discover() })
                 }
             }
         }
@@ -110,7 +106,7 @@ private fun Onboarding(onDone: () -> Unit) {
     var step by rememberSaveable { mutableIntStateOf(0) }
     val titles = listOf(s.t("手机就是翻页笔", "Your phone. Your presenter."), s.t("按住指示，松手隐藏", "Hold to point. Release to hide."), s.t("专注每一次演示", "Stay focused on your presentation"))
     val descriptions = listOf(s.t("让手机和电脑连接同一 Wi-Fi，扫描 Windows 端二维码，或输入设备码完成配对。", "Connect both devices to the same Wi-Fi. Scan the Windows QR code, or use its pairing code."),
-        s.t("单手模式像触控板一样移动光点。全屏模式对应电脑屏幕；激光与系统鼠标相互独立。", "One-hand mode works like a trackpad. Full-screen mode maps to the display. The laser stays separate from the system mouse."),
+        s.t("全屏模式像触控板一样移动光点。单手模式对应电脑屏幕位置；激光与系统鼠标相互独立。", "Full-screen mode works like a trackpad. One-hand mode maps to the display. The laser stays separate from the system mouse."),
         s.t("大按钮和音量键都能翻页。演示前先在电脑打开幻灯片放映；随时可以调整惯用手和激光效果。", "Use the large buttons or volume keys to turn slides. Start the slideshow on your PC first. Adjust your preferred hand and laser anytime."))
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -162,106 +158,78 @@ private fun Status(state: UiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
     }
-    state.statusError?.takeIf(String::isNotBlank)?.let { error ->
-        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-            Text(error, Modifier.padding(14.dp).semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.onErrorContainer)
-        }
-    }
+
 }
 
 @Composable
-private fun DeviceScreen(state: UiState, actions: UiActions, onBack: () -> Unit, onSettings: () -> Unit) {
+private fun DeviceScreen(state: UiState, actions: UiActions, onBack: () -> Unit, onCode: () -> Unit) {
     val s = LocalCopy.current
-    var showCode by rememberSaveable { mutableStateOf(false) }
-    var code by rememberSaveable { mutableStateOf("") }
-    var host by rememberSaveable { mutableStateOf("") }
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val compact = with(LocalDensity.current) { windowHeight.toDp() < 500.dp }
     var forgotten by remember { mutableStateOf<Device?>(null) }
-    val focus = remember { FocusRequester() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        PageHeader(s.t("连接设备", "Connect a computer"), onBack) {
-            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, s.t("设置", "Settings")) }
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var computersOpen by remember { mutableStateOf(false) }
+    val selected = state.recentDevices.firstOrNull { it.id == selectedId }
+        ?: state.recentDevices.firstOrNull { it.id == state.connectedDeviceId } ?: state.recentDevices.firstOrNull()
+    Column(Modifier.fillMaxWidth().testTag("device-sheet").padding(horizontal = 20.dp).padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(s.t("连接设备", "Connect a computer"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            if (state.connected) TextButton(onClick = actions.disconnect) { Text(s.t("断开", "Disconnect")) }
         }
-        Text(s.t("同一 Wi-Fi，即刻开始演示", "One Wi-Fi. Ready to present."), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(s.t("请先在电脑上打开映点 Pointa。", "Open Pointa on your Windows computer first."), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Status(state)
-        if (state.recentDevices.isNotEmpty()) {
-            Text(s.t("最近使用", "Recent computers"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            state.recentDevices.forEach { device ->
+        if (state.connecting) Status(state)
+        if (selected != null) {
+            if (!compact || state.recentDevices.size > 1) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(s.t("最近使用", "Recent computers"), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                if (state.recentDevices.size > 1) Box {
+                    TextButton(onClick = { computersOpen = true }) { Text(s.t("选择电脑", "Choose computer")); Icon(Icons.Default.ExpandMore, null) }
+                    DropdownMenu(computersOpen, onDismissRequest = { computersOpen = false }) {
+                        state.recentDevices.forEach { computer -> DropdownMenuItem(text = { Text(computer.name) },
+                            onClick = { selectedId = computer.id; computersOpen = false }) }
+                    }
+                }
+            }
+            selected.let { device ->
+                val connect = { if (state.connected && device.id == state.connectedDeviceId) onBack() else actions.reconnect(device.id) }
+                if (compact) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(device.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = connect, enabled = !state.connecting) { Text(s.t("连接", "Connect")) }
+                    IconButton(onClick = { forgotten = device }) { Icon(Icons.Default.DeleteOutline, s.t("忘记设备", "Forget computer")) }
+                } else
                 CardGroup {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(Icons.Default.Computer, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text(device.name, fontWeight = FontWeight.SemiBold)
-                            Text(device.detail.ifBlank { device.host }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(device.host, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onClick = { forgotten = device }, modifier = Modifier.size(48.dp)) {
                             Icon(Icons.Default.DeleteOutline, s.t("忘记设备", "Forget computer"))
                         }
                     }
-                    Button(onClick = { if (state.connected && device.id == state.connectedDeviceId) onBack() else actions.reconnect(device.id) },
+                    Button(onClick = connect,
                         enabled = !state.connecting, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text(if (state.connected && device.id == state.connectedDeviceId) s.t("继续演示", "Continue presentation") else s.t("连接电脑", "Connect"))
                     }
                 }
             }
         }
-        if (state.connected) OutlinedButton(onClick = actions.disconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(s.t("断开当前连接", "Disconnect"))
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .4f))
-        Text(s.t("添加新设备", "Add a computer"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        OutlinedButton(onClick = actions.scan, enabled = !state.connecting && !state.scanning, modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(12.dp)); Text(s.t("扫描二维码", "Scan QR code"))
-        }
-        OutlinedButton(onClick = { showCode = !showCode; if (showCode) actions.discover() }, enabled = !state.connecting,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.Password, null); Spacer(Modifier.width(12.dp)); Text(s.t("输入 6 位设备码", "Enter 6-digit code"))
-        }
-        if (showCode) {
-            LaunchedEffect(Unit) { focus.requestFocus() }
-            CardGroup {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(s.t("选择电脑", "Choose a computer"), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    TextButton(onClick = actions.discover, enabled = !state.discovering) {
-                        Text(if (state.discovering) s.t("搜索中…", "Searching…") else s.t("重新搜索", "Refresh"))
-                    }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = actions.scan, enabled = !state.connecting && !state.scanning,
+                modifier = Modifier.weight(1f).heightIn(min = if (compact) 48.dp else 80.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(8.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!compact) Icon(Icons.Default.QrCodeScanner, null)
+                    Text(s.t("扫描二维码", "Scan QR code"), style = MaterialTheme.typography.labelLarge)
                 }
-                state.discoveredDevices.forEach { device ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { host = device.host }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = host == device.host, onClick = { host = device.host })
-                        Column { Text(device.name); Text(device.host, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
+            }
+            OutlinedButton(onClick = onCode, enabled = !state.connecting,
+                modifier = Modifier.weight(1f).heightIn(min = if (compact) 48.dp else 80.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(8.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!compact) Icon(Icons.Default.Password, null)
+                    Text(s.t("输入 6 位设备码", "Enter 6-digit code"), style = MaterialTheme.typography.labelLarge)
                 }
-                if (!state.discovering && state.discoveredDevices.isEmpty()) Text(s.t("未发现电脑，可手动输入 Windows 配对窗口中的 IP 地址。", "No computers found. Enter the IP address shown in the Windows pairing window."), style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(value = host, onValueChange = { host = it.trim().take(255) }, label = { Text(s.t("电脑 IP 地址", "Computer IP address")) },
-                    placeholder = { Text("192.168.1.100") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-                Text(s.t("6 位设备码", "6-digit pairing code"), style = MaterialTheme.typography.labelLarge)
-                BasicTextField(value = code, onValueChange = { code = it.filter { c -> c in '0'..'9' }.take(6) }, singleLine = true,
-                    textStyle = MaterialTheme.typography.titleLarge.copy(color = Color.Transparent), cursorBrush = SolidColor(Color.Transparent),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = s.t("6 位设备码", "6-digit pairing code") },
-                    decorationBox = { input ->
-                        Box {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                repeat(6) { index ->
-                                    Box(Modifier.weight(1f).heightIn(min = 56.dp).border(1.dp,
-                                        if (index == code.length) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                        RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                        Text(code.getOrNull(index)?.toString() ?: "·", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                }
-                            }
-                            Box(Modifier.matchParentSize().alpha(0f)) { input() }
-                        }
-                    })
-                Button(onClick = { actions.pairCode(host.trim(), code) }, enabled = host.isNotBlank() && code.length == 6 && !state.connecting,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(s.t("安全配对", "Pair securely")) }
-                Text(s.t("设备码会过期；请使用电脑上当前显示的号码，并在电脑上确认连接。", "Pairing codes expire. Use the current code and approve the connection on your computer."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(s.t("连接不上？确认手机和电脑处于同一局域网。校园或访客 Wi-Fi 可能禁止设备互访，可尝试手机热点；也可在 Windows 端设置中允许映点通过防火墙。", "Can't connect? Both devices must be reachable on the same local network. Campus or guest Wi-Fi may isolate devices; try a phone hotspot, or allow Pointa through the firewall in its Windows settings."),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
     }
     forgotten?.let { device ->
         AlertDialog(onDismissRequest = { forgotten = null }, title = { Text(s.t("忘记这台电脑？", "Forget this computer?")) },
@@ -305,11 +273,11 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                     IconButton(onClick = onSettings, enabled = !editing) { Icon(Icons.Default.Settings, s.t("个性化设置", "Settings")) }
                 }
             }
-            if (state.statusError != null || state.connecting) {
-                Text(state.statusError ?: state.statusText, Modifier.fillMaxWidth().clickable { statusOpen = true }
+            if (state.connecting) {
+                Text(state.statusText, Modifier.fillMaxWidth().clickable { statusOpen = true }
                     .semantics { liveRegion = LiveRegionMode.Polite },
                     maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
-                    color = if (state.statusError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
@@ -473,7 +441,7 @@ private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiAction
             PageButton(false, enabled && !editing, { actions.page(false) }, Modifier.fillMaxWidth().weight(.4f))
             PageButton(true, enabled && !editing, { actions.page(true) }, Modifier.fillMaxWidth().weight(.6f))
         }
-        LaserPad(enabled && !editing, true, p.sensitivity, null, pointer, actions, geometry.touch.modifier(), p.laserColor, editing)
+        LaserPad(enabled && !editing, false, p.sensitivity, null, pointer, actions, geometry.touch.modifier(), p.laserColor, editing)
         if (editing) {
             Edge.entries.forEach { edge ->
                 val point = when (edge) {

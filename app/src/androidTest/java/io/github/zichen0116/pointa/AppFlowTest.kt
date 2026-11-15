@@ -30,7 +30,7 @@ class AppFlowTest {
         compose.runOnUiThread { model = ViewModelProvider(compose.activity)[PointaViewModel::class.java] }
         compose.waitUntil(5000) { model.ready }
         compose.runOnUiThread {
-            model.changePreferences(model.preferences.value.copy(onboardingDone = true, language = "zh", autoReconnect = true,
+            model.changePreferences(model.preferences.value.copy(onboardingDone = true, language = "zh",
                 mode = "one", leftHand = false, rightMargins = Margins(), theme = 1))
             model.connectQr(fixture.getString("qr").replace("host=127.0.0.1&", "host=10.0.2.2&"))
         }
@@ -109,11 +109,14 @@ class AppFlowTest {
         compose.onNodeWithText("激光颜色").assertDoesNotExist()
         compose.onNodeWithText("开源许可").assertDoesNotExist()
         screenshot("settings-footer-zh.png")
-        compose.onNodeWithContentDescription("返回演示").performScrollTo()
-        compose.onNodeWithContentDescription("返回演示").performClick()
-        compose.runOnUiThread { model.setForeground(false) }
+        compose.onNodeWithContentDescription("返回演示").assertIsDisplayed().performClick()
+        compose.runOnUiThread { model.setScanning(true); model.setForeground(false) }
         compose.waitUntil(5000) { !model.ui.value.connected }
+        compose.runOnIdle { assertFalse(model.ui.value.scanning) }
         compose.runOnUiThread { model.setForeground(true) }
+        Thread.sleep(1500)
+        compose.runOnIdle { assertFalse(model.ui.value.connected); assertFalse(model.ui.value.connecting) }
+        compose.runOnUiThread { model.reconnect(model.ui.value.recentDevices.first().id) }
         compose.waitUntil(15000) { model.ui.value.connected }
         val id = model.ui.value.connectedDeviceId!!
         compose.runOnUiThread { model.forget(id) }

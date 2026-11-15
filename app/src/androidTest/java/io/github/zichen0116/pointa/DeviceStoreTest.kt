@@ -39,14 +39,21 @@ class DeviceStoreTest {
     @Test fun preferencesPersistBothHandsAndNeverOverwriteCorruptInput() {
         val raw = context.getSharedPreferences("pointa_preferences", Context.MODE_PRIVATE)
         val store = PreferenceStore(context)
-        val p = Preferences(language = "en", leftMargins = Margins(left = .1f), rightMargins = Margins(bottom = .2f), autoReconnect = false)
+        val p = Preferences(language = "en", leftMargins = Margins(left = .1f), rightMargins = Margins(bottom = .2f))
         try {
             store.save(p)
             assertEquals(p, store.load())
             val legacy = org.json.JSONObject(raw.getString("v1", null)!!).put("haptics", false).put("laserColor", "#FFFFFF").put("theme", 2)
+                .put("autoReconnect", true).put("mode", "one").put("fullRelative", false).also { it.remove("touchDefaultsVersion") }
             raw.edit().putString("v1", legacy.toString()).commit()
             assertEquals("#32B894", store.load().laserColor)
             assertEquals(p.leftMargins, store.load().leftMargins)
+            assertEquals("full", store.load().mode)
+            assertTrue(store.load().fullRelative)
+            assertFalse(org.json.JSONObject(raw.getString("v1", null)!!).has("autoReconnect"))
+            store.save(store.load().copy(mode = "one", fullRelative = false))
+            assertEquals("one", store.load().mode)
+            assertFalse(store.load().fullRelative)
             raw.edit().putString("v1", "broken").commit()
             assertThrows(Exception::class.java) { store.load() }
             assertEquals("broken", raw.getString("v1", ""))

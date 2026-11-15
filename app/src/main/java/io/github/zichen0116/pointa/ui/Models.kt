@@ -7,11 +7,11 @@ data class Preferences(
     val theme: Int = 0,
     val appearance: String = "dark", // dark, light, system
     val language: String = "system", // zh, en, system
-    val mode: String = "one", // one, full, slides, air
+    val mode: String = "full", // one, full, slides, air
     val leftHand: Boolean = false,
     val leftMargins: Margins = Margins(),
     val rightMargins: Margins = Margins(),
-    val fullRelative: Boolean = false,
+    val fullRelative: Boolean = true,
     val trailEnabled: Boolean = true,
     val trailMs: Int = 500,
     val sensitivity: Int = 60,
@@ -21,7 +21,6 @@ data class Preferences(
     val prevVolume: String = "-", // 0, +, -
     val nextVolume: String = "+",
     val keepScreenOn: Boolean = true,
-    val autoReconnect: Boolean = true,
     val reduceMotion: Boolean = false,
     val onboardingDone: Boolean = false,
 ) {

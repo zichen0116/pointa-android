@@ -25,8 +25,67 @@ class PresentationUiTest {
     private var hides = 0
     private fun actions() = UiActions({}, {}, { _, _ -> }, {}, {}, {}, { _, _ -> moves++ }, { hides++ }, { pages++ }, {})
 
+    @Test fun codeEntryIsSeparateAndAutomaticallyPairsOnceWhenComplete() {
+        val requests = mutableListOf<Pair<String,String>>()
+        val actions = actions().copy(pairCode = { host, code -> requests.add(host to code) })
+        compose.setContent { PointaApp(UiState(), Preferences(language = "en", onboardingDone = true), {}, actions) }
+        compose.onNodeWithText("Enter 6-digit code").performClick()
+        compose.onNodeWithText("Scan QR code").assertDoesNotExist()
+        listOf("192", "168", "1", "187").forEachIndexed { index, part ->
+            compose.onNodeWithContentDescription("IP part ${index + 1}").performScrollTo().performTextInput(part)
+        }
+        compose.onNodeWithContentDescription("6-digit pairing code").performScrollTo().performTextInput("12345")
+        compose.runOnIdle { assertTrue(requests.isEmpty()) }
+        compose.onNodeWithContentDescription("6-digit pairing code").performTextInput("6")
+        compose.runOnIdle { assertEquals(listOf("192.168.1.187" to "123456"), requests) }
+        compose.onNodeWithText("Try again").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(2, requests.size) }
+    }
+
+    @Test fun settingsPageStaysFullScreenAndKeepsBackVisibleAtTheBottom() {
+        compose.setContent { PointaApp(UiState(connected = true), Preferences(language = "en", onboardingDone = true), {}, actions()) }
+        compose.onNodeWithContentDescription("Settings").performClick()
+        compose.onNodeWithText("GitHub · Pointa").performScrollTo()
+        val panel = compose.onNodeWithTag("settings-page")
+        val bounds = panel.getUnclippedBoundsInRoot()
+        repeat(6) { compose.onNodeWithTag("settings-scroll").performTouchInput { swipeUp() } }
+        assertEquals(bounds, panel.getUnclippedBoundsInRoot())
+        compose.onNodeWithText("GitHub · Pointa").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to presentation").assertIsDisplayed()
+        compose.onNodeWithTag("presentation-screen").assertDoesNotExist()
+        compose.onNodeWithText("Auto-reconnect").assertDoesNotExist()
+    }
+
+    @Test fun devicePanelHasNoPageScrollAndDismissesByDraggingDown() {
+        val computers = (1..20).map { Device("pc-$it", "Computer $it", "192.168.1.$it") }
+        compose.setContent { PointaApp(UiState(recentDevices = computers), Preferences(language = "en", onboardingDone = true), {}, actions()) }
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        compose.onNodeWithText("Choose computer").performClick()
+        compose.onNodeWithText("Computer 2").performScrollTo().performClick()
+        compose.onNodeWithText("Computer 2").assertIsDisplayed()
+        compose.onNodeWithTag("device-sheet-handle", useUnmergedTree = true).performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(0f, 600f)) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device-sheet").assertDoesNotExist()
+        compose.onNodeWithText("Full-screen").assertIsDisplayed()
+    }
+
+    @Test fun fullScreenStartsRelativeAndOneHandUsesAbsoluteCoordinates() {
+        var preferences by mutableStateOf(Preferences(language = "en", onboardingDone = true))
+        val positions = mutableListOf<Pair<Float,Float>>()
+        compose.setContent { PointaApp(UiState(connected = true), preferences, { preferences = it }, actions().copy(move = { x,y -> positions.add(x to y) })) }
+        compose.onNodeWithText("Full-screen").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Hold to point").performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(width * .2f, height * .3f)); up()
+        }
+        compose.runOnIdle { assertEquals(.5f, positions.last().first, .01f); assertEquals(.5f, positions.last().second, .01f); preferences = preferences.copy(mode = "one") }
+        compose.onNodeWithContentDescription("Hold to point").performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(width * .2f, height * .3f)); up()
+        }
+        compose.runOnIdle { assertEquals(.2f, positions.last().first, .01f); assertEquals(.3f, positions.last().second, .01f) }
+    }
+
     @Test fun controlsHideOnReleaseAndEditingStaysInPlaceAndAutosaves() {
-        var prefs by mutableStateOf(Preferences(language = "en", onboardingDone = true))
+        var prefs by mutableStateOf(Preferences(language = "en", mode = "one", onboardingDone = true))
         compose.setContent { PointaApp(UiState(connected = true, deviceName = "Test computer"), prefs, { prefs = it }, actions()) }
         compose.onNodeWithText("Next").performClick()
         assertEquals(1, pages)
@@ -51,7 +110,8 @@ class PresentationUiTest {
     @Test fun disconnectedControlsNeverSendActionsAndEnglishSettingsAreReachable() {
         var prefs by mutableStateOf(Preferences(language = "en", onboardingDone = true))
         compose.setContent { PointaApp(UiState(), prefs, { prefs = it }, actions()) }
-        compose.onNodeWithContentDescription("Back to presentation").performClick()
+        compose.onNodeWithTag("device-sheet-handle", useUnmergedTree = true).performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(0f, 600f)) }
+        compose.waitForIdle()
         compose.onNodeWithText("Next").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.onNodeWithText("Theme color").assertExists()
