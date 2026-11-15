@@ -7,7 +7,6 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.Closeable
-import java.security.cert.CertificateException
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -15,10 +14,9 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicLong
-import javax.net.ssl.SSLException
 
 /** No automatic retries. Callbacks are serialized on the protocol thread, never the UI thread. */
-class PointaClient(deviceName: String, private val listener: PointaListener) : Closeable {
+class PointaClient(deviceName: String, private val listener: PointaListener, private val diagnostic: (String) -> Unit = {}) : Closeable {
     private val name = deviceName.trim().also {
         require(it.length in 1..64 && it.none(Char::isISOControl)) { "invalid_name" }
     }
@@ -146,6 +144,7 @@ class PointaClient(deviceName: String, private val listener: PointaListener) : C
 
     private fun start(value: Attempt) {
         cleanup()
+        diagnostic("Connecting to ${value.host}:${value.port}")
         attempt = value
         computerName = value.known?.name ?: value.host
         startedAt = monotonicMillis()
@@ -161,14 +160,8 @@ class PointaClient(deviceName: String, private val listener: PointaListener) : C
                 override fun onMessage(webSocket: WebSocket, text: String) = callback(token) { receive(text) }
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) = callback(token) { fail("text_required") }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = callback(token) {
-                    var cause: Throwable? = t
-                    var error = "network_error"
-                    while (cause != null) {
-                        if (cause.message == "certificate_changed") { error = "certificate_changed"; break }
-                        if (cause is SSLException || cause is CertificateException) error = "invalid_certificate"
-                        cause = cause.cause
-                    }
-                    if (stage == Stage.FORGETTING) disconnectInternal() else fail(error)
+                    diagnostic("Transport failure: " + generateSequence(t) { it.cause }.take(5).joinToString(" / ") { "${it.javaClass.simpleName}: ${it.message?.take(180)}" })
+                    if (stage == Stage.FORGETTING) disconnectInternal() else fail(connectionError(t))
                 }
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = callback(token) {
                     webSocket.close(code, null)
@@ -190,7 +183,7 @@ class PointaClient(deviceName: String, private val listener: PointaListener) : C
                 ensure(idPattern.matches(serverId) && idPattern.matches(pairingId), "invalid_identity")
                 value.discovered?.let {
                     ensure(serverId == it.serverId, "identity_changed")
-                    ensure(pairingId == it.pairingId, "pairing_expired")
+                    // Discovery is only a locator: use the current SRP session after the code refreshes.
                 }
                 computerName = data.text("name", 64)
                 ensure(data.number("heartbeatMs") == 1000L && data.number("maxMessageBytes") == 4096L, "unsupported_protocol")
@@ -330,7 +323,7 @@ class PointaClient(deviceName: String, private val listener: PointaListener) : C
         emit(ConnectionPhase.DISCONNECTED)
     }
 
-    private fun fail(error: String) { cleanup(); emit(ConnectionPhase.FAILED, error) }
+    private fun fail(error: String) { diagnostic("Failure at $stage: $error"); cleanup(); emit(ConnectionPhase.FAILED, error) }
 
     private fun cleanup(graceful: Boolean = false) {
         ticker?.cancel(false); ticker = null
@@ -361,7 +354,7 @@ class PointaClient(deviceName: String, private val listener: PointaListener) : C
     private fun callback(token: Long, block: () -> Unit) = post { if (token == generation && stage != Stage.NONE) block() }
     private fun guarded(block: () -> Unit) {
         try { block() } catch (error: ProtocolFailure) { fail(error.code) }
-        catch (_: Exception) { fail("invalid_message") }
+        catch (error: Exception) { diagnostic("Protocol exception: ${error.javaClass.simpleName}"); fail("invalid_message") }
     }
     private fun monotonicMillis() = System.nanoTime() / 1_000_000
 }

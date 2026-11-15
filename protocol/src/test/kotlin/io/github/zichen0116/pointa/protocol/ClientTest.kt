@@ -17,6 +17,21 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 class ClientTest {
+    @Test fun refreshedCodeUsesCurrentHandshakeInsteadOfStaleDiscoverySession() {
+        Fixture().use { f ->
+            f.client.pairCode(DiscoveredComputer(f.id, "PC", "127.0.0.1", f.server.port, "e".repeat(32), 1), "012345")
+            assertEquals(f.pair, f.message("pair.srp.begin").text("pairingId"))
+            assertTrue(f.events.paired.isEmpty())
+        }
+    }
+
+    @Test fun discoveryCannotSwitchComputerIdentity() {
+        Fixture().use { f ->
+            f.client.pairCode(DiscoveredComputer("e".repeat(32), "PC", "127.0.0.1", f.server.port, f.pair, 1), "012345")
+            assertEquals("identity_changed", f.events.phase(ConnectionPhase.FAILED).error)
+            assertTrue(f.received.isEmpty())
+        }
+    }
     @Test fun newTouchAfterReleaseIsNotClearedByAnOlderHide() {
         Fixture().use { f ->
             f.autoApprove = true
