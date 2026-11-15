@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -245,6 +246,14 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
     val s = LocalCopy.current
     var modesOpen by remember { mutableStateOf(false) }
     var statusOpen by remember { mutableStateOf(false) }
+    val adjustments = remember(editing, p.leftHand) { mutableStateListOf<Margins>() }
+    fun recordAdjustment(margins: Margins) {
+        if (adjustments.size == 50) adjustments.removeAt(0)
+        adjustments.add(margins)
+    }
+    fun setMargins(margins: Margins) {
+        update(if (p.leftHand) p.copy(leftMargins = margins.normalized()) else p.copy(rightMargins = margins.normalized()))
+    }
     val modeName = when (p.mode) {
         "full" -> s.t("全屏触控", "Full-screen")
         "slides" -> s.t("纯翻页", "Slides only")
@@ -288,7 +297,7 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                         if (!locked && !editing) Icon(Icons.Default.ExpandMore, null)
                     }
                     DropdownMenu(expanded = modesOpen, onDismissRequest = { modesOpen = false }) {
-                        listOf("one" to s.t("单手模式", "One-hand"), "full" to s.t("全屏触控", "Full-screen"),
+                        listOf("full" to s.t("全屏触控", "Full-screen"), "one" to s.t("单手模式", "One-hand"),
                             "slides" to s.t("纯翻页", "Slides only"), "air" to s.t("空中指针", "Air pointer")).forEach { (mode, label) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = { actions.hide(); update(p.copy(mode = mode)); modesOpen = false })
                         }
@@ -301,11 +310,15 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                     }
                 }
                 if (editing) {
-                    TextButton(onClick = { update(if (p.leftHand) p.copy(leftMargins = Margins()) else p.copy(rightMargins = Margins())) }) { Text(s.t("重置", "Reset")) }
+                    TextButton(onClick = {
+                        val current = if (p.leftHand) p.leftMargins else p.rightMargins
+                        val defaults = if (p.leftHand) Preferences().leftMargins else Preferences().rightMargins
+                        if (current != defaults) { recordAdjustment(current); setMargins(defaults) }
+                    }) { Text(s.t("重置", "Reset")) }
+                    IconButton(onClick = { setMargins(adjustments.removeAt(adjustments.lastIndex)) }, enabled = adjustments.isNotEmpty()) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, s.t("撤销上一步", "Undo adjustment"))
+                    }
                     IconButton(onClick = { setEditing(false) }) { Icon(Icons.Default.Check, s.t("完成编辑", "Finish editing")) }
-                }
-                if (p.mode != "slides" && !editing) IconButton(onClick = actions.hide, enabled = state.connected) {
-                    Icon(Icons.Default.VisibilityOff, s.t("立即隐藏激光", "Hide laser now"))
                 }
             }
             Box(Modifier.fillMaxWidth().weight(1f).testTag("control-workspace")) {
@@ -323,9 +336,8 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                         }
                     }
                     "air" -> AirWorkspace(state, actions)
-                    else -> OneHandWorkspace(p, state.connected, actions, pointer, editing, { margins ->
-                        update(if (p.leftHand) p.copy(leftMargins = margins.normalized()) else p.copy(rightMargins = margins.normalized()))
-                    }, Modifier.fillMaxSize())
+                    else -> OneHandWorkspace(p, state.connected, actions, pointer, editing,
+                        { recordAdjustment(it) }, { setMargins(it) }, Modifier.fillMaxSize())
                 }
             }
             if (!compact) Text(
@@ -334,8 +346,8 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                     !state.connected -> s.t("请先连接电脑以启用演示控制", "Connect a computer to enable controls")
                     locked -> s.t("布局已锁定 · 点按锁图标解锁", "Layout locked · Tap the lock to unlock")
                     p.mode == "slides" -> s.t("先在电脑上开始幻灯片放映", "Start the slideshow on your computer")
-                    p.mode == "air" -> if (state.airUsesTilt) s.t("按住倾斜手机 · 松手隐藏", "Hold and tilt · Release to hide")
-                        else s.t("手机上边缘朝向屏幕 · 按住轻转", "Point the phone's top edge at the screen · Hold and rotate")
+                    p.mode == "air" -> if (state.airUsesTilt) s.t("倾斜手机控制指针", "Tilt the phone to point")
+                        else s.t("手机上边缘朝向屏幕 · 轻转手机", "Point the phone's top edge at the screen · Rotate gently")
                     else -> s.t("按住移动 · 松手隐藏", "Hold to move · Release to hide")
                 }, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -351,26 +363,20 @@ private fun AirWorkspace(state: UiState, actions: UiActions) {
     val s = LocalCopy.current
     val currentActions by rememberUpdatedState(actions)
     val enabled = state.connected && state.airAvailable
-    DisposableEffect(Unit) { onDispose { currentActions.airHold(false) } }
     @Composable fun Pad(modifier: Modifier) {
         Box(modifier.clip(RoundedCornerShape(24.dp))
             .background(if (state.airActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp))
-            .semantics { contentDescription = s.t("按住激活空中指针", "Hold to activate air pointer"); if (!enabled) disabled() }
+            .semantics { contentDescription = s.t("空中指针控制区", "Air pointer area"); if (!enabled) disabled() }
             .pointerInput(enabled) {
-                if (enabled) detectTapGestures(onPress = {
-                    currentActions.airHold(true)
-                    try { awaitRelease() } finally { currentActions.airHold(false) }
-                })
+                if (enabled) detectTapGestures(onDoubleTap = { currentActions.page(true) })
             }, contentAlignment = Alignment.Center) {
             Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Default.ScreenRotation, null, Modifier.size(44.dp),
                     tint = if (state.airActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(when {
                     !state.airAvailable -> s.t("此设备无旋转传感器，请用触控模式", "No rotation sensor. Use touch mode.")
-                    state.airUsesTilt -> s.t("按住后左右倾斜、前后俯仰", "Hold, then tilt left/right or forward/back")
-                    state.airActive -> s.t("轻转手机进行指示", "Rotate gently to point")
-                    else -> s.t("手机上边缘朝向屏幕\n按住激活空中指针", "Point the phone's top edge at the screen\nHold to activate air pointer")
+                    else -> s.t("按住音量键翻页", "Press a volume key to turn slides")
                 }, style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -427,11 +433,13 @@ private fun PageButton(next: Boolean, enabled: Boolean, onClick: () -> Unit, mod
 }
 
 @Composable
-private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiActions, pointer: PointerMemory, editing: Boolean, setMargins: (Margins) -> Unit, modifier: Modifier) {
+private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiActions, pointer: PointerMemory, editing: Boolean,
+    recordAdjustment: (Margins) -> Unit, setMargins: (Margins) -> Unit, modifier: Modifier) {
     val density = LocalDensity.current
     val s = LocalCopy.current
     val margins = if (p.leftHand) p.leftMargins else p.rightMargins
     val updateMargins by rememberUpdatedState(setMargins)
+    val recordChange by rememberUpdatedState(recordAdjustment)
     BoxWithConstraints(modifier) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
@@ -457,16 +465,30 @@ private fun OneHandWorkspace(p: Preferences, enabled: Boolean, actions: UiAction
                     .size(48.dp).semantics {
                         contentDescription = name
                         stateDescription = "${(margins.valueFor(edge) * 100).roundToInt()}%"
-                        customActions = listOf(
-                            CustomAccessibilityAction(s.t("向内调整", "Move inward")) { updateMargins(margins.withEdge(edge, margins.valueFor(edge) + .02f)); true },
-                            CustomAccessibilityAction(s.t("向外调整", "Move outward")) { updateMargins(margins.withEdge(edge, margins.valueFor(edge) - .02f)); true })
+                        customActions = listOf(.02f to s.t("向内调整", "Move inward"), -.02f to s.t("向外调整", "Move outward")).map { (delta, label) ->
+                            CustomAccessibilityAction(label) {
+                                val next = margins.withEdge(edge, margins.valueFor(edge) + delta)
+                                if (next != margins) { recordChange(margins); updateMargins(next) }
+                                true
+                            }
+                        }
                     }
                     .pointerInput(edge, geometry.containerWidth, h) {
-                        detectDragGestures { change, amount ->
+                        var start = latestMargins
+                        var dragged = start
+                        fun finish() { if (dragged != start) recordChange(start) }
+                        detectDragGestures(
+                            onDragStart = { start = latestMargins; dragged = start },
+                            onDragEnd = ::finish, onDragCancel = ::finish,
+                        ) { change, amount ->
                             change.consume()
-                            val current = latestMargins
+                            val current = dragged
                             val value = when (edge) { Edge.LEFT -> current.left + amount.x / geometry.containerWidth; Edge.RIGHT -> current.right - amount.x / geometry.containerWidth; Edge.TOP -> current.top + amount.y / h; Edge.BOTTOM -> current.bottom - amount.y / h }
-                            updateMargins(current.withEdge(edge, value))
+                            val next = current.withEdge(edge, value)
+                            if (next != current) {
+                                dragged = next
+                                updateMargins(next)
+                            }
                         }
                     }, contentAlignment = Alignment.Center) {
                     Box(Modifier.size(18.dp).background(MaterialTheme.colorScheme.primary, CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape))
@@ -492,6 +514,8 @@ private fun LaserPad(enabled: Boolean, relative: Boolean, sensitivity: Int, aspe
         .pointerInput(enabled, relative, sensitivity, aspect, editing) {
             if (!enabled || editing) return@pointerInput
             val canvas = fitAspect(size.width.toFloat(), size.height.toFloat(), if (relative) null else aspect)
+            var lastTapUp: Long? = null
+            var lastTapPosition = Offset.Zero
             try {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -501,11 +525,15 @@ private fun LaserPad(enabled: Boolean, relative: Boolean, sensitivity: Int, aspe
                     localPoint = down.position
                     visible = true
                     currentActions.move(memory.point.x, memory.point.y)
+                    var tap = true
+                    var releasedAt: Long? = null
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed || change.isConsumed) break
+                            if (change.isConsumed) { tap = false; break }
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop || event.changes.count { it.pressed } > 1) tap = false
+                            if (!change.pressed) { releasedAt = change.uptimeMillis; break }
                             val position = change.position
                             memory.point = if (relative) relativePoint(memory.point, position.x - previous.x, position.y - previous.y, size.width.toFloat(), size.height.toFloat(), sensitivity)
                                 else absolutePoint(position.x, position.y, canvas)
@@ -515,6 +543,15 @@ private fun LaserPad(enabled: Boolean, relative: Boolean, sensitivity: Int, aspe
                             change.consume()
                         }
                     } finally { visible = false; currentActions.hide() }
+                    val up = releasedAt
+                    if (tap && up != null && up - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) {
+                        val interval = lastTapUp?.let { down.uptimeMillis - it }
+                        if (interval != null && interval in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis &&
+                            (down.position - lastTapPosition).getDistance() <= viewConfiguration.touchSlop * 2) {
+                            currentActions.page(true)
+                            lastTapUp = null
+                        } else { lastTapUp = up; lastTapPosition = down.position }
+                    } else lastTapUp = null
                 }
             } finally { visible = false; currentActions.hide() }
         }, contentAlignment = Alignment.Center) {

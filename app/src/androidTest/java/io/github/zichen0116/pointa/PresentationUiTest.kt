@@ -97,13 +97,13 @@ class PresentationUiTest {
         compose.onNodeWithContentDescription("Margin values").assertDoesNotExist()
         compose.onNodeWithText("Save").assertDoesNotExist()
         compose.onNodeWithContentDescription("Adjust left edge").performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(60f,0f)); up() }
-        compose.runOnIdle { assertTrue(prefs.rightMargins.left > 0); assertEquals(Margins(), prefs.leftMargins) }
+        compose.runOnIdle { assertTrue(prefs.rightMargins.left > Preferences().rightMargins.left); assertEquals(Preferences().leftMargins, prefs.leftMargins) }
         compose.onNodeWithContentDescription("Finish editing").performClick()
         compose.runOnIdle { assertTrue(prefs.rightMargins.left > 0) }
         assertEquals(workspace, compose.onNodeWithTag("control-workspace").getUnclippedBoundsInRoot())
         compose.onNodeWithContentDescription("Edit touch area").performClick()
         compose.onNodeWithText("Reset").performClick()
-        compose.runOnIdle { assertEquals(Margins(), prefs.rightMargins); assertEquals(Margins(), prefs.leftMargins) }
+        compose.runOnIdle { assertEquals(Preferences().rightMargins, prefs.rightMargins); assertEquals(Preferences().leftMargins, prefs.leftMargins) }
         compose.onNodeWithContentDescription("Finish editing").performClick()
     }
 
@@ -116,6 +116,41 @@ class PresentationUiTest {
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.onNodeWithText("Theme color").assertExists()
         compose.runOnIdle { assertEquals(0, pages); assertEquals(0, moves) }
+    }
+
+    @Test fun editingUndoesWholeDragsAndResetAndStartsFreshEachSession() {
+        var prefs by mutableStateOf(Preferences(language = "en", mode = "one", onboardingDone = true))
+        compose.setContent { PointaApp(UiState(connected = true), prefs, { prefs = it }, actions()) }
+        compose.onNodeWithContentDescription("Hide laser now").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Edit touch area").performClick()
+        val undo = compose.onNodeWithContentDescription("Undo adjustment")
+        undo.assertIsNotEnabled()
+        val defaults = prefs.rightMargins
+        fun dragEdge(name: String) {
+            compose.onNodeWithContentDescription(name).performTouchInput {
+                down(center)
+                repeat(4) { moveBy(androidx.compose.ui.geometry.Offset(18f, 18f)); advanceEventTime(24) }
+                up()
+            }
+        }
+        dragEdge("Adjust left edge")
+        val first = compose.runOnIdle { prefs.rightMargins.also { assertNotEquals(defaults, it) } }
+        dragEdge("Adjust top edge")
+        compose.runOnIdle { assertNotEquals(first, prefs.rightMargins) }
+        undo.assertIsEnabled()
+        undo.performClick()
+        compose.runOnIdle { assertEquals(first, prefs.rightMargins) }
+        compose.onNodeWithText("Reset").performClick()
+        compose.runOnIdle { assertEquals(defaults, prefs.rightMargins) }
+        undo.performClick()
+        compose.runOnIdle { assertEquals(first, prefs.rightMargins) }
+        undo.performClick()
+        compose.runOnIdle { assertEquals(defaults, prefs.rightMargins); assertEquals(Preferences().leftMargins, prefs.leftMargins) }
+        undo.assertIsNotEnabled()
+        dragEdge("Adjust left edge")
+        compose.onNodeWithContentDescription("Finish editing").performClick()
+        compose.onNodeWithContentDescription("Edit touch area").performClick()
+        undo.assertIsNotEnabled()
     }
 
     @Test fun allControlModesFitSmallScreensWithoutVerticalScrolling() {
@@ -143,16 +178,35 @@ class PresentationUiTest {
         }
     }
 
-    @Test fun airPointerUsesHoldReleaseAndHasARealCalibrationAction() {
-        val holds = mutableListOf<Boolean>()
+    @Test fun airPointerNeedsNoHoldAndSupportsCalibrationAndDoubleTap() {
         var calibrated = false
-        var state by mutableStateOf(UiState(connected = true, airAvailable = true))
-        val callbacks = actions().copy(airHold = { holds.add(it); state = state.copy(airActive = it) }, calibrateAir = { calibrated = true })
+        var state by mutableStateOf(UiState(connected = true, airAvailable = true, airActive = true))
+        val callbacks = actions().copy(calibrateAir = { calibrated = true })
         compose.setContent { PointaApp(state, Preferences(language = "en", mode = "air", onboardingDone = true), {}, callbacks) }
-        compose.onNodeWithContentDescription("Hold to activate air pointer").performTouchInput { down(center); advanceEventTime(100); up() }
-        compose.runOnIdle { assertEquals(listOf(true, false), holds) }
+        compose.onNodeWithText("Press a volume key to turn slides").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Air pointer area").performTouchInput { doubleClick() }
+        compose.runOnIdle { assertEquals(1, pages) }
         compose.onNodeWithText("Recenter").performClick()
         compose.runOnIdle { assertTrue(calibrated); state = state.copy(airAvailable = false) }
-        compose.onNodeWithContentDescription("Hold to activate air pointer").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Air pointer area").assertIsNotEnabled()
+    }
+
+    @Test fun doubleTapPagesOnceButSingleTapsAndDragsDoNot() {
+        var preferences by mutableStateOf(Preferences(language = "en", onboardingDone = true))
+        compose.setContent { PointaApp(UiState(connected = true), preferences, { preferences = it }, actions()) }
+        for (mode in listOf("full", "one")) {
+            compose.runOnIdle { preferences = preferences.copy(mode = mode); pages = 0 }
+            val pad = compose.onNodeWithContentDescription("Hold to point")
+            pad.performTouchInput { click() }
+            compose.runOnIdle { assertEquals(0, pages) }
+            pad.performTouchInput { advanceEventTime(600); doubleClick() }
+            compose.runOnIdle { assertEquals(1, pages) }
+            pad.performTouchInput {
+                advanceEventTime(600)
+                down(center); moveBy(androidx.compose.ui.geometry.Offset(80f, 60f)); up()
+                advanceEventTime(100); click()
+            }
+            compose.runOnIdle { assertEquals(1, pages) }
+        }
     }
 }

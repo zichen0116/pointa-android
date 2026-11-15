@@ -4,13 +4,13 @@ internal val ThemeColorHex = listOf("#111722", "#FF6475", "#32B894", "#4D95ED", 
 
 /** Values are persisted by the application layer; UI never reads credentials or performs I/O. */
 data class Preferences(
-    val theme: Int = 0,
+    val theme: Int = 1,
     val appearance: String = "dark", // dark, light, system
     val language: String = "system", // zh, en, system
     val mode: String = "full", // one, full, slides, air
     val leftHand: Boolean = false,
-    val leftMargins: Margins = Margins(),
-    val rightMargins: Margins = Margins(),
+    val leftMargins: Margins = Margins(right = .20189054f, top = .15615822f, bottom = .16862626f),
+    val rightMargins: Margins = Margins(left = .20189054f, top = .15615822f, bottom = .16862626f),
     val fullRelative: Boolean = true,
     val trailEnabled: Boolean = true,
     val trailMs: Int = 500,
@@ -59,6 +59,5 @@ data class UiActions(
     val hide: () -> Unit,
     val page: (next: Boolean) -> Unit,
     val onControlActive: (Boolean) -> Unit,
-    val airHold: (Boolean) -> Unit = {},
     val calibrateAir: () -> Unit = {},
 )

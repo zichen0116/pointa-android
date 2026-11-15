@@ -34,6 +34,9 @@ try {
         if ($message.event -eq 'ready') { $fixture = $message; break }
     }
     if ($null -eq $fixture) { throw 'No Windows test fixture received.' }
+    # Continuous air-pointer events must not fill the host's redirected pipes and block its replies.
+    $outputDrain = $process.StandardOutput.ReadToEndAsync()
+    $errorDrain = $process.StandardError.ReadToEndAsync()
     & $taskAdb -s $Serial install -r app/build/outputs/apk/debug/app-debug.apk
     if ($LASTEXITCODE -ne 0) { throw 'App installation failed.' }
     & $taskAdb -s $Serial install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -44,7 +47,7 @@ try {
         $result = & $taskAdb -s $Serial shell am instrument -w -e class io.github.zichen0116.pointa.AppFlowTest -e pointa.appFixture $encoded io.github.zichen0116.pointa.test/androidx.test.runner.AndroidJUnitRunner
         $result | Set-Content -LiteralPath artifacts/app-flow.txt
     } else {
-        $result = & $taskAdb -s $Serial shell am instrument -w -e notClass io.github.zichen0116.pointa.AppFlowTest -e pointa.fixture $encoded io.github.zichen0116.pointa.test/androidx.test.runner.AndroidJUnitRunner
+        $result = & $taskAdb -s $Serial shell am instrument -w -e notClass io.github.zichen0116.pointa.AppFlowTest,io.github.zichen0116.pointa.LiveLanProbeTest -e pointa.fixture $encoded io.github.zichen0116.pointa.test/androidx.test.runner.AndroidJUnitRunner
         $result | Set-Content -LiteralPath artifacts/device-smoke.txt
     }
     $result | Select-Object -Last 20

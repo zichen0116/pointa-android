@@ -79,13 +79,13 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
         if (!active) { wantsConnection = false; connectionRequest?.cancel(); hide(); client.disconnect(); mutableUi.value = mutableUi.value.copy(connected = false, connecting = false, scanning = false) }
     }
 
-    fun setControlActive(active: Boolean) { controlActive = active; if (!active) hide() }
+    fun setControlActive(active: Boolean) { controlActive = active; if (!active) hide() else updateAirControl() }
     fun setDisplayRotation(rotation: Int) { air.rotation = rotation }
-    fun airHold(held: Boolean) {
-        if (held && canControl() && preferences.value.mode == "air") { air.sensitivity = preferences.value.sensitivity; air.start() }
+    private fun updateAirControl() {
+        if (canControl() && preferences.value.mode == "air" && air.available) { air.sensitivity = preferences.value.sensitivity; air.start() }
         else air.stop()
     }
-    fun calibrateAir() = air.calibrate()
+    fun calibrateAir() { air.calibrate(); updateAirControl() }
     fun setScanning(scanning: Boolean) {
         if (scanning) hide()
         mutableUi.value = mutableUi.value.copy(scanning = scanning)
@@ -197,6 +197,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
         if (old == next) return
         if (old.mode != next.mode) air.stop()
         mutablePreferences.value = next
+        updateAirControl()
         preferenceSave?.cancel()
         preferenceSave = viewModelScope.launch {
             delay(200)
@@ -233,6 +234,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
                 if (!storageHealthy || !foreground || !wantsConnection) { client.disconnect(); return@launch }
                 mutableUi.value = mutableUi.value.copy(connected = true, connecting = false, deviceName = state.name, connectedDeviceId = selectedId,
                     statusText = t("已连接", "Connected"), statusError = null)
+                updateAirControl()
                 client.updateEffect(effect(preferences.value))
                 val computer = currentComputer?.takeIf { it.serverId == selectedId }
                 if (computer != null) try {
@@ -299,7 +301,7 @@ class PointaViewModel(application: Application) : AndroidViewModel(application),
         code == "controller_busy" -> t("电脑正由另一台手机控制，请先在电脑端断开它。", "Another phone is controlling this computer. Disconnect it on Windows first.")
         code.contains("storage") -> t("设备记录无法安全读取或保存，原记录已保留。请检查存储；密钥损坏时在系统清除应用数据后重新配对。", "Trusted devices cannot be read or saved securely. Records were preserved. Check storage; reset app data and pair again if the key is lost.")
         code.contains("preferences") -> t("设置无法读取或保存，原文件已保留。请检查存储或清除应用数据后重试。", "Settings could not be read or saved. The original was preserved. Check storage or reset app data.")
-        code.contains("focus") || code.contains("target") || code == "no_foreground_window" || code == "input_blocked" -> t("翻页未执行，请前置或授权演示窗口。", "Slide blocked. Focus or allow the presentation window.")
+        code.contains("focus") || code.contains("target") || code == "no_foreground_window" || code == "input_blocked" -> t("翻页未执行，请前置演示窗口。", "Slide blocked. Focus the presentation window.")
         code.contains("cooldown") || code == "keyboard_busy" -> t("操作过快或电脑按键正被占用，请稍后再试。", "Please slow down or release the computer's keys.")
         code == "camera_denied" -> t("未获得相机权限，仍可用设备码连接。", "Camera access was denied. You can still connect with a pairing code.")
         code == "camera_failed" -> t("相机暂不可用，请重试或使用设备码。", "Camera unavailable. Retry or use a pairing code.")

@@ -31,7 +31,7 @@ class AppFlowTest {
         compose.waitUntil(5000) { model.ready }
         compose.runOnUiThread {
             model.changePreferences(model.preferences.value.copy(onboardingDone = true, language = "zh",
-                mode = "one", leftHand = false, rightMargins = Margins(), theme = 1))
+                mode = "one", leftHand = false, rightMargins = io.github.zichen0116.pointa.ui.Preferences().rightMargins, theme = 1))
             model.connectQr(fixture.getString("qr").replace("host=127.0.0.1&", "host=10.0.2.2&"))
         }
         compose.waitUntil(15000) { model.ui.value.connected }
@@ -56,7 +56,7 @@ class AppFlowTest {
         compose.onNodeWithContentDescription("调整左边").performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(60f,0f)); up() }
         screenshot("edit-in-place-zh.png")
         compose.onNodeWithContentDescription("完成编辑").performClick()
-        compose.waitUntil(5000) { PreferenceStore(context).load().rightMargins.left > 0 }
+        compose.waitUntil(5000) { PreferenceStore(context).load().rightMargins.left > io.github.zichen0116.pointa.ui.Preferences().rightMargins.left }
         assertEquals(workspace, compose.onNodeWithTag("control-workspace").getUnclippedBoundsInRoot())
 
         val notices = mutableListOf<String>()
@@ -90,6 +90,7 @@ class AppFlowTest {
             compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
             compose.onNodeWithText("下一页").assertIsDisplayed()
         }
+        compose.waitUntil(3000) { model.ui.value.airActive }
         screenshot("air-pointer-zh.png")
         try {
             assertTrue(automation.setRotation(UiAutomation.ROTATION_FREEZE_90))
@@ -100,9 +101,14 @@ class AppFlowTest {
         } finally { automation.setRotation(UiAutomation.ROTATION_FREEZE_0) }
         compose.waitUntil(5000) { runCatching { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }.getOrDefault(false) }
         compose.runOnUiThread { model.changePreferences(model.preferences.value.copy(mode = "one")) }
+        compose.runOnIdle { assertFalse(model.ui.value.airActive) }
         compose.onNodeWithContentDescription("个性化设置").performClick()
         compose.onNodeWithText("主题颜色").assertExists()
         screenshot("settings-zh.png")
+        compose.onNodeWithText("语言").performClick()
+        compose.onNodeWithText("English").assertIsDisplayed()
+        screenshot("settings-language-zh.png")
+        androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText("欢迎提交 PR 和 issue").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("GitHub · Pointa").performScrollTo().assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithText("触觉反馈").assertDoesNotExist()
