@@ -1,5 +1,9 @@
 # 构建与验证记录
 
+## v0.1.5 正式分发（2026-11-17）
+
+`assembleRelease`、`lintRelease` 和 `testReleaseUnitTest` 通过，13 项 Release 单元测试无失败，Lint 0 errors、13 warnings。使用独立持久正式密钥签名，apksigner v2/v3 验证通过，Manifest 与已安装包均没有 DEBUGGABLE 标记。Android 16.1 隔离模拟器安装及冷启动成功，实际 onboarding UI 可见；未改动真机测试版及其数据。附件为 `Pointa-0.1.5.apk`、SHA-256、公开证书及签名报告。签名与升级说明见 [发布说明](releasing.md)。
+
 ## 0.1.5 编辑工具栏与主题菜单（2026-11-16）
 
 重置靠近标题，退出叉号位于撤销左侧；退出编辑保留已自动保存的布局。设置下拉文字与勾选使用当前主题色。14 个设备测试和 1 个完整流程通过，含退出后布局保留；构建及 Lint 通过（0 errors、13 warnings），已查看编辑和语言菜单截图。证据：`artifacts/v0.1.5-device-smoke.txt`、`v0.1.5-app-flow.txt`、`v0.1.5-previews/`。APK 随包加入项目 MIT 许可，覆盖安装保留数据。
