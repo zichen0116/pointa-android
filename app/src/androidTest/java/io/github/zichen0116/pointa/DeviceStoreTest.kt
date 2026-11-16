@@ -59,4 +59,24 @@ class DeviceStoreTest {
             assertEquals("broken", raw.getString("v1", ""))
         } finally { raw.edit().clear().commit() }
     }
+
+    @Test fun oldFullSizeDefaultsMigrateOnceAndCustomLayoutsSurvive() {
+        val raw = context.getSharedPreferences("pointa_preferences", Context.MODE_PRIVATE)
+        val store = PreferenceStore(context)
+        val customRight = Margins(left = .12f, top = .1f, bottom = .2f)
+        try {
+            store.save(Preferences(leftMargins = Margins(), rightMargins = customRight))
+            val legacy = org.json.JSONObject(raw.getString("v1", null)!!).also { it.remove("layoutDefaultsVersion") }
+            raw.edit().putString("v1", legacy.toString()).commit()
+            assertEquals(Preferences().leftMargins, store.load().leftMargins)
+            assertEquals(customRight, store.load().rightMargins)
+            val defaults = Preferences()
+            assertEquals(defaults.rightMargins.left, defaults.leftMargins.right)
+            assertEquals(defaults.rightMargins.right, defaults.leftMargins.left)
+            assertEquals(defaults.rightMargins.top, defaults.leftMargins.top)
+            assertEquals(defaults.rightMargins.bottom, defaults.leftMargins.bottom)
+            store.save(store.load().copy(leftMargins = Margins()))
+            assertEquals("Later explicit full-size adjustments must survive", Margins(), store.load().leftMargins)
+        } finally { raw.edit().clear().commit() }
+    }
 }

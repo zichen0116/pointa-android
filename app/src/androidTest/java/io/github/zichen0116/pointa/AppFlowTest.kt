@@ -89,6 +89,7 @@ class AppFlowTest {
             compose.runOnUiThread { model.changePreferences(model.preferences.value.copy(mode = mode)) }
             compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
             compose.onNodeWithText("下一页").assertIsDisplayed()
+            if (mode == "full") screenshot("full-screen-zh.png")
         }
         compose.waitUntil(3000) { model.ui.value.airActive }
         screenshot("air-pointer-zh.png")

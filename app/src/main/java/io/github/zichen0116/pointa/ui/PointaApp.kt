@@ -262,6 +262,7 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
     }
     BoxWithConstraints(Modifier.fillMaxSize().testTag("presentation-screen")) {
         val compact = maxHeight < 440.dp
+        val narrow = maxWidth < 360.dp
         Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -290,6 +291,16 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
+                    if (editing) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(s.t("调整触控区", "Adjust touch area"), Modifier.weight(1f, fill = false),
+                            fontSize = if (narrow) 14.sp else 18.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TextButton(onClick = {
+                            val current = if (p.leftHand) p.leftMargins else p.rightMargins
+                            val defaults = if (p.leftHand) Preferences().leftMargins else Preferences().rightMargins
+                            if (current != defaults) { recordAdjustment(current); setMargins(defaults) }
+                        }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.widthIn(min = 48.dp)) { Text(s.t("重置", "Reset")) }
+                    } else {
                     TextButton(onClick = { modesOpen = true }, enabled = !locked && !editing,
                         contentPadding = PaddingValues(horizontal = 0.dp)) {
                         Text(if (editing) s.t("调整触控区", "Adjust touch area") else modeName, Modifier.weight(1f, fill = false), fontSize = if (compact) 18.sp else 22.sp,
@@ -302,6 +313,7 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                             DropdownMenuItem(text = { Text(label) }, onClick = { actions.hide(); update(p.copy(mode = mode)); modesOpen = false })
                         }
                     }
+                    }
                 }
                 if (p.mode == "one" && !locked && !editing) {
                     TextButton(onClick = { update(p.copy(leftHand = !p.leftHand)) }) { Text(if (p.leftHand) s.t("左手", "Left") else s.t("右手", "Right")) }
@@ -310,11 +322,8 @@ private fun ControlScreen(state: UiState, p: Preferences, update: (Preferences) 
                     }
                 }
                 if (editing) {
-                    TextButton(onClick = {
-                        val current = if (p.leftHand) p.leftMargins else p.rightMargins
-                        val defaults = if (p.leftHand) Preferences().leftMargins else Preferences().rightMargins
-                        if (current != defaults) { recordAdjustment(current); setMargins(defaults) }
-                    }) { Text(s.t("重置", "Reset")) }
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = { setEditing(false) }) { Icon(Icons.Default.Close, s.t("退出编辑", "Exit editing")) }
                     IconButton(onClick = { setMargins(adjustments.removeAt(adjustments.lastIndex)) }, enabled = adjustments.isNotEmpty()) {
                         Icon(Icons.AutoMirrored.Filled.Undo, s.t("撤销上一步", "Undo adjustment"))
                     }

@@ -18,20 +18,26 @@ class PreferenceStore(context: Context) {
             return Margins(m.getDouble("left").toFloat(), m.getDouble("right").toFloat(), m.getDouble("top").toFloat(), m.getDouble("bottom").toFloat())
         }
         val migrateTouchDefaults = !j.has("touchDefaultsVersion")
+        val migrateLayoutDefaults = !j.has("layoutDefaultsVersion")
+        fun layout(name: String, defaults: Margins): Margins {
+            val stored = margins(name)
+            return if (migrateLayoutDefaults && stored == Margins()) defaults else stored
+        }
         val preferences = Preferences(theme = j.getInt("theme"), appearance = j.getString("appearance"), language = j.getString("language"),
-            mode = if (migrateTouchDefaults) "full" else storedMode, leftHand = j.getBoolean("leftHand"), leftMargins = margins("leftMargins"), rightMargins = margins("rightMargins"),
+            mode = if (migrateTouchDefaults) "full" else storedMode, leftHand = j.getBoolean("leftHand"),
+            leftMargins = layout("leftMargins", Preferences().leftMargins), rightMargins = layout("rightMargins", Preferences().rightMargins),
             fullRelative = migrateTouchDefaults || storedRelative, trailEnabled = j.getBoolean("trailEnabled"), trailMs = j.getInt("trailMs"), sensitivity = j.getInt("sensitivity"),
             laserSize = j.getString("laserSize"), smoothing = j.getString("smoothing"), volumeEnabled = j.getBoolean("volumeEnabled"),
             prevVolume = j.getString("prevVolume"), nextVolume = j.getString("nextVolume"), keepScreenOn = j.getBoolean("keepScreenOn"),
             reduceMotion = j.getBoolean("reduceMotion"), onboardingDone = j.getBoolean("onboardingDone")).also(::validate)
-        if (migrateTouchDefaults) save(preferences)
+        if (migrateTouchDefaults || migrateLayoutDefaults) save(preferences)
         return preferences
     }
 
     fun save(p: Preferences) {
         validate(p)
         fun margins(m: Margins) = JSONObject().put("left", m.left).put("right", m.right).put("top", m.top).put("bottom", m.bottom)
-        val json = JSONObject().put("touchDefaultsVersion", 1).put("theme", p.theme).put("appearance", p.appearance).put("language", p.language).put("mode", p.mode)
+        val json = JSONObject().put("touchDefaultsVersion", 1).put("layoutDefaultsVersion", 1).put("theme", p.theme).put("appearance", p.appearance).put("language", p.language).put("mode", p.mode)
             .put("leftHand", p.leftHand).put("leftMargins", margins(p.leftMargins)).put("rightMargins", margins(p.rightMargins))
             .put("fullRelative", p.fullRelative).put("trailEnabled", p.trailEnabled).put("trailMs", p.trailMs).put("sensitivity", p.sensitivity)
             .put("laserSize", p.laserSize).put("smoothing", p.smoothing).put("volumeEnabled", p.volumeEnabled)

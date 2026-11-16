@@ -148,7 +148,10 @@ class PresentationUiTest {
         compose.runOnIdle { assertEquals(defaults, prefs.rightMargins); assertEquals(Preferences().leftMargins, prefs.leftMargins) }
         undo.assertIsNotEnabled()
         dragEdge("Adjust left edge")
-        compose.onNodeWithContentDescription("Finish editing").performClick()
+        val saved = compose.runOnIdle { prefs.rightMargins }
+        compose.onNodeWithContentDescription("Exit editing").performClick()
+        compose.runOnIdle { assertEquals(saved, prefs.rightMargins) }
+        compose.onNodeWithContentDescription("Undo adjustment").assertDoesNotExist()
         compose.onNodeWithContentDescription("Edit touch area").performClick()
         undo.assertIsNotEnabled()
     }

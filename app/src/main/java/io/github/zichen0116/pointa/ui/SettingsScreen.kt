@@ -142,8 +142,8 @@ private fun Choice(label: String, selected: String, choices: List<Pair<String, S
                 Icon(Icons.Default.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }, modifier = Modifier.widthIn(min = 180.dp)) {
-                choices.forEach { (key, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(key); expanded = false },
-                    trailingIcon = if (key == selected) { { Icon(Icons.Default.Check, null) } } else null) }
+                choices.forEach { (key, text) -> DropdownMenuItem(text = { Text(text, color = MaterialTheme.colorScheme.primary) }, onClick = { onSelect(key); expanded = false },
+                    trailingIcon = if (key == selected) { { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) } } else null) }
             }
         }
     }

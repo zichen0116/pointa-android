@@ -1,67 +1,85 @@
-# 映点 Pointa · Android
+<p align="center"><img src="docs/media/pointa-logo.png" width="76" alt="Pointa logo"></p>
+<h1 align="center">映点 Pointa</h1>
+<p align="center">把手机变成翻页笔。</p>
+<p align="center"><a href="README.en.md">English</a> · <a href="#开始使用">开始使用</a> · <a href="https://github.com/zichen0116/pointa-windows">Windows 端</a> · <a href="https://github.com/zichen0116/pointa-android/issues">反馈问题</a></p>
+<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-FF6475" alt="MIT license"></a> <img src="https://img.shields.io/badge/Android-8.0%2B-32B894" alt="Android 8.0+"> <img src="https://img.shields.io/badge/Windows-11_x64-4D95ED" alt="Windows 11 x64"> <img src="https://img.shields.io/badge/status-preview-D69A47" alt="Preview"></p>
 
-原生 Kotlin / Compose 手机演示遥控端，配合 [Pointa Windows](https://github.com/zichen0116/pointa-windows) 使用。按照产品 PRD 和 V5 原型实现；激光与电脑鼠标独立，无云账号、无公网中转、无演示画面采集。
+![Pointa — Your phone. Your presenter.](docs/media/pointa-banner.png)
 
-当前是 **0.1.4 开发验证版**，Android 8.0+（API 26），目标 API 36。提供可安装的 debug APK；正式签名与应用商店发布尚未配置。
+讲课、答辩、做分享时，不用一直站在电脑旁。手机和电脑连到同一个可互访的局域网，扫码配对，就能翻页、移动激光光点。
 
-## 使用
+这里是 **Android 遥控端**。手机负责操作，Windows 负责显示光点和执行翻页，两端需要配合使用。
 
-1. 安装 `artifacts/Pointa-0.1.4-debug.apk`，在 Windows 打开 Pointa 0.1.6，以使用三分钟配对码和新版紧凑界面。
-2. 手机、电脑连到互通的局域网。Windows 0.1.1 自动选择 Wi-Fi／有线网卡，不再因“公用”分类禁用连接；配对窗直接显示可复制的 IP。
-3. 全屏扫描 Windows QR，或进入独立设备码页，选择电脑/分段输入 IP，六位码输完自动连接；在 Windows 明确允许配对。扫码识别有定位框、振动和提示音。
-4. 控制主页固定一屏，默认全屏相对位移；单手触控区使用绝对坐标。连接设备面板可下拉关闭；设置与设备码输入使用带返回的全屏页面。纯翻页保留两个大按钮。
-5. 将浏览器、PDF 或演示应用置于前台即可翻页，无需逐窗口授权。触控区双击翻到下一页，单击和拖动不触发翻页。失败通过短暂 Toast 提示，不在控制页面留下常驻警告，不虚构页码。
+## 演示时怎么用
 
-支持左右手布局、主题/明暗/双语、激光大小/拖尾/平滑、灵敏度、音量键映射、布局锁定、常亮、最近电脑与手动重连。默认珊瑚红，激光颜色跟随主题；翻页触觉默认开启，使用系统振动器，无独立开关。点击单手主页的铅笔，在当前工作区拖拽四边，自动保存，可恢复默认；重置和完成之间的撤销按钮每次退回一次完整调整，重置也能撤销。已有自选颜色和布局保留。相机权限只在扫码时请求；拒绝后仍能使用设备码。离线遗忘设备只清除手机记录，仍应在 Windows 撤销原授权。
+- **全屏触控**：像触控板一样移动光点，双击触控区翻到下一页。
+- **单手模式**：翻页键和触控区放在一起。直接拖动边缘调整大小，自动保存，支持撤销和重置。
+- **空中指针**：进入模式后轻转手机指示，无需一直按住屏幕；偏了可以归零校准。
+- **纯翻页**：只留上一页、下一页两个大按钮。也可以使用手机音量键。
+- **激光拖尾**：收尖曲线随移动渐隐，颜色跟随手机主题。光点独立于系统鼠标，不抢电脑焦点。
 
-**空中指针：** 采用参考项目网页的方向映射；连接后进入空中指针模式即自动启用，无需按住。手机屏幕朝上、上边缘指向演示屏，轻转手机控制光点。“归零校准”恢复屏幕中心，按音量键或双击控制区翻页。灵敏度在设置中调整，支持显示方向换轴。优先使用游戏旋转向量，其次旋转向量；缺失时使用重力/加速度传感器的倾斜模式，并显示对应说明。离开控制页、进入后台、断连或传感器失去更新都会停止输出。实现和基准见 [参考算法对齐](docs/reference-alignment.md)，不同真机的漂移与手感仍需实测。
+不需要注册账号，不经过云端中转。首次配对需要电脑确认，以后从最近电脑手动连接。
 
-扫码使用 CameraX + ZXing 离线解码。QR 绑定实际 TLS 证书 SHA-256；设备码使用证书绑定的 SRP-6a，批准后才保存独立凭据。长期凭据使用 Android Keystore AES-GCM 加密，并排除系统备份。首次配对、IP 发现与错误处理的安全边界见 [隐私与安全](docs/privacy-security.md)。
+## 看看界面
 
-0.1.3 的扫码、输入、Toast 和设置滚动修复见 [连接说明](docs/connection-ui-0.1.3.md)。家庭 Wi-Fi 本轮已恢复互访并通过 45 秒真机加密心跳测试；此前间歇性 ARP 失败的根因仍未证实，详见 [验证记录](docs/validation.md)。手机个人热点路径也已在真机建立加密连接。
+<table><tr><td align="center"><img src="docs/media/one-hand.png" width="220" alt="单手控制界面"><br>单手控制</td><td align="center"><img src="docs/media/full-screen.png" width="220" alt="全屏触控界面"><br>全屏触控</td><td align="center"><img src="docs/media/settings.png" width="220" alt="跟随珊瑚红主题的设置菜单"><br>主题与设置</td></tr></table>
 
-## 构建
+<p align="center"><img src="docs/media/windows.png" width="520" alt="Windows 配对窗口，右上角显示可复制的电脑 IP"></p>
 
-安装 JDK 17、Android SDK 36 / Build Tools 35.0.0。通过 `ANDROID_HOME` 或本地 `local.properties` 指定 SDK；后者不进入 Git。仓库自带 Gradle 8.14 wrapper。
+以上为程序实际运行截图，来自隔离测试环境；横幅是品牌插画。没有把概念图当成功能截图。
 
-```powershell
-./scripts/build.ps1
-```
+## 开始使用
 
-跨平台等效命令：
+**当前为预览版：Windows 0.1.7 / Android 0.1.5。正式安装包将在本轮验收后发布。**
+
+| 需要安装 | 获取方式 |
+| --- | --- |
+| Windows 接收端 | [发行页面](https://github.com/zichen0116/pointa-windows/releases) · [开发构建](https://github.com/zichen0116/pointa-windows/actions/workflows/build.yml) |
+| Android 遥控端 | [发行页面](https://github.com/zichen0116/pointa-android/releases) · [开发构建](https://github.com/zichen0116/pointa-android/actions/workflows/build.yml) |
+
+发行页面暂时没有安装包时，可自行构建，或在成功的 Actions 运行页面下载 Artifacts（需要登录 GitHub）。开发 APK 使用测试签名；Windows 安装包尚未代码签名。
+
+1. 在电脑和手机上分别安装并打开 Pointa。
+2. 连接同一个可互访的 Wi-Fi。也支持电脑连接手机热点。
+3. 手机点“连接设备”，扫描电脑二维码，在电脑上允许配对。也可以输入电脑 IP 和六位设备码，设备码三分钟有效。
+4. 把演示软件切到前台，开始翻页和指示。
+
+Android 要求 8.0 及以上。Windows 优先支持 Windows 11 x64；Windows 10 兼容性还需更多实测。空中指针的体验取决于手机传感器。
+
+## 常见问题
+
+**同一个 Wi-Fi，为什么连不上？**
+
+访客网络、部分校园网会隔离设备。先核对电脑 IP；手动输入 IP 也不能绕过网络隔离。Windows 若阻止连接，可在应用设置中添加仅限本地子网的防火墙规则，无需关闭防火墙。若待机后出现设备互访失败，可尝试重连电脑 Wi-Fi；本项目的环境排查记录见 [验证记录](docs/validation.md)。
+
+**连接成功，但没有翻页？**
+
+请把 PowerPoint、WPS、浏览器演示或 PDF 阅读器切到前台。Pointa 不会自动切换窗口。不同网页和阅读器对方向键的处理可能不同。
+
+**会议共享时看不到激光？**
+
+单独共享一个应用窗口可能不包含独立激光覆盖层，请测试整屏共享。HDR、独占全屏和多屏投影仍需按实际设备确认。
+
+**这是鼠标遥控软件吗？**
+
+不是。Pointa 控制演示翻页和独立激光，不移动系统鼠标，也不提供远程桌面、文件传输或鼠标点击。
+
+## 开发与贡献
+
+需要 JDK 17、Android SDK 36 和 Build Tools 35.0.0。在 `local.properties` 配置 SDK 路径，然后执行：
 
 ```sh
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按版本号另复制到 `artifacts/Pointa-0.1.4-debug.apk`。发布签名密钥不应放入仓库，不用 debug 签名作为正式发行身份。
+APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。真机、模拟器及 Windows 协议互通步骤见 [开发说明](docs/development.md)。
 
-## 测试
+欢迎提交 [Issue](https://github.com/zichen0116/pointa-android/issues) 和 PR。特别欢迎不同手机传感器、演示软件与网络环境的实测反馈；请附双端版本、复现步骤和错误原文，别上传配对二维码、凭据或私人演示内容。
 
-`protocol` 是无 Android 依赖的 Kotlin/JVM 模块，测试二维码严格解析、TLS pin、SRP 固定向量、状态机、时钟、隐藏、翻页限流、凭据与协议负面路径。几何/音量映射测试在 `app/src/test`。设备测试验证 Keystore、损坏记录保留和 Compose 实际交互。
+[贡献指南](CONTRIBUTING.md) · [架构](docs/architecture.md) · [验证记录](docs/validation.md) · [更新记录](CHANGELOG.md) · [宣传素材](docs/media/README.md)
 
-同级 Windows 仓库先构建测试专用主机（不是真实桌面服务，不注入键盘）：
+## 致谢与许可
 
-```powershell
-dotnet build ../pointa-windows/tests/Pointa.InteropHost -c Release
-$env:POINTA_INTEROP_HOST = (Resolve-Path '../pointa-windows/tests/Pointa.InteropHost/bin/Release/net10.0/Pointa.InteropHost.dll').Path
-$env:POINTA_DOTNET = (Get-Command dotnet).Source
-./gradlew :protocol:test --rerun-tasks
-```
+受 [lan-laser-pen](https://github.com/fuxing0910-hue/lan-laser-pen) 启发，拖尾和姿态映射参考其网页实现；来源和对齐方法见 [说明](docs/reference-alignment.md)。感谢为实测、修复和文档付出时间的贡献者。
 
-未指定 `POINTA_INTEROP_HOST` 时，JVM Windows 互通用例明确跳过，不冒充通过。Android 模拟器到真实 Windows TLS/SRP/存储服务的测试：
-
-```powershell
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
-./scripts/device-smoke.ps1 -Serial emulator-5554 -InteropHost $env:POINTA_INTEROP_HOST
-./scripts/device-smoke.ps1 -Serial emulator-5554 -InteropHost $env:POINTA_INTEROP_HOST -AppFlow
-```
-
-参数必须指向要测试的模拟器；该脚本安装应用和测试 APK，仅启动绑定回环地址、自动批准、临时凭据的测试主机。普通设备测试可运行 `./gradlew connectedDebugAndroidTest`，跨 Windows 用例没有测试参数时明确跳过。
-
-## 文档与边界
-
-- [架构](docs/architecture.md)、[范围与验收](docs/scope.md)、[本次验证](docs/validation.md)、[开源组件](docs/open-source-notices.md)。许可原文随 APK assets 分发；设置页底部仅保留 PR/issue 邀请与项目链接。
-- [Windows v1 协议](../pointa-windows/docs/protocol.md) 是双端契约；新 Windows 构建增加可选 `display` 信息，旧构建仍可连接，但手机没有真实显示器比例时按触控区域映射。
-- 空中指针已实现；真实扫码、传感器机型差异、网络切换、投影、P95 延迟/耗电、TalkBack 和独立安全审查仍需发布前验证。
-- 项目最终开源许可证由仓库所有者决定；第三方许可已保留，不代表给本项目擅自指定许可。
+Pointa 使用 [MIT 许可证](LICENSE)。第三方组件保留各自的版权和许可。
